@@ -8,6 +8,17 @@ const anthropic = new Anthropic();
 
 export async function POST(req: Request) {
   try {
+    const apiKey = process.env.ANTHROPIC_API_KEY ?? "";
+    const nonAscii = [...apiKey].findIndex((c) => c.charCodeAt(0) > 127);
+    if (nonAscii !== -1) {
+      return new Response(
+        JSON.stringify({
+          error: `ANTHROPIC_API_KEY has non-ASCII char at index ${nonAscii} (code ${apiKey.charCodeAt(nonAscii)}). Re-paste the key in Vercel without hidden characters.`,
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      );
+    }
+
     const { messages, conversationId } = (await req.json()) as {
       messages: Mensaje[];
       conversationId?: string;

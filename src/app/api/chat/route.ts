@@ -2,6 +2,8 @@ import Anthropic from "@anthropic-ai/sdk";
 import { buildSystemPrompt, type Mensaje } from "@/lib/socrates";
 import { supabaseAdmin } from "@/lib/supabase-server";
 
+export const runtime = "nodejs";
+
 const anthropic = new Anthropic();
 
 export async function POST(req: Request) {

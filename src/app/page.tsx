@@ -111,6 +111,15 @@ export default function Home() {
         >
           Finanzas →
         </Link>
+        <button
+          onClick={async () => {
+            await fetch("/api/auth/logout", { method: "POST" });
+            window.location.href = "/login";
+          }}
+          className="text-sm text-neutral-500 hover:text-rose-400 transition-colors"
+        >
+          Salir
+        </button>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">

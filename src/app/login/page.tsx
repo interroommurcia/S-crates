@@ -2,12 +2,40 @@
 
 import { useState } from "react";
 import { useRouter } from "next/navigation";
+import { startAuthentication } from "@simplewebauthn/browser";
 
 export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState("");
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+
+  async function loginPasskey() {
+    if (loading) return;
+    setLoading(true);
+    setError("");
+    try {
+      const optRes = await fetch("/api/auth/passkey/login/options", { method: "POST" });
+      const options = await optRes.json();
+      const credential = await startAuthentication({ optionsJSON: options });
+      const verRes = await fetch("/api/auth/passkey/login/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential }),
+      });
+      if (verRes.ok) {
+        router.replace("/");
+        router.refresh();
+      } else {
+        const d = await verRes.json().catch(() => ({}));
+        setError(d.error ?? "No se pudo entrar con passkey");
+      }
+    } catch {
+      setError("Passkey cancelado o no disponible");
+    } finally {
+      setLoading(false);
+    }
+  }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault();
@@ -59,6 +87,21 @@ export default function Login() {
           className="bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white rounded-xl px-5 py-3 text-sm font-medium transition-colors"
         >
           {loading ? "Entrando…" : "Entrar"}
+        </button>
+
+        <div className="flex items-center gap-3 my-1">
+          <div className="h-px bg-neutral-800 flex-1" />
+          <span className="text-xs text-neutral-600">o</span>
+          <div className="h-px bg-neutral-800 flex-1" />
+        </div>
+
+        <button
+          type="button"
+          onClick={loginPasskey}
+          disabled={loading}
+          className="border border-neutral-700 hover:border-amber-500 text-neutral-200 rounded-xl px-5 py-3 text-sm font-medium transition-colors disabled:opacity-40"
+        >
+          Entrar con passkey (Face ID / huella)
         </button>
       </form>
     </main>

@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
+import { startRegistration } from "@simplewebauthn/browser";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -111,6 +112,27 @@ export default function Home() {
         >
           Finanzas →
         </Link>
+        <button
+          onClick={async () => {
+            try {
+              const opt = await (
+                await fetch("/api/auth/passkey/register/options", { method: "POST" })
+              ).json();
+              const credential = await startRegistration({ optionsJSON: opt });
+              const res = await fetch("/api/auth/passkey/register/verify", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ credential }),
+              });
+              alert(res.ok ? "Passkey añadido correctamente." : "No se pudo añadir el passkey.");
+            } catch {
+              alert("Registro de passkey cancelado o no disponible.");
+            }
+          }}
+          className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
+        >
+          + Passkey
+        </button>
         <button
           onClick={async () => {
             await fetch("/api/auth/logout", { method: "POST" });

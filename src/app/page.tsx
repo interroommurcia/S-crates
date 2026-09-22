@@ -15,10 +15,39 @@ export default function Home() {
   const [loading, setLoading] = useState(false);
   const [convId] = useState(genId);
   const bottomRef = useRef<HTMLDivElement>(null);
+  const dirtyRef = useRef(false);
+  const reflectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const flushReflect = (keepalive = false) => {
+    if (!dirtyRef.current) return;
+    dirtyRef.current = false;
+    if (reflectTimerRef.current) clearTimeout(reflectTimerRef.current);
+    fetch("/api/reflect", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ conversationId: convId }),
+      keepalive,
+    }).catch(() => {});
+  };
+
+  const scheduleReflect = () => {
+    dirtyRef.current = true;
+    if (reflectTimerRef.current) clearTimeout(reflectTimerRef.current);
+    reflectTimerRef.current = setTimeout(() => flushReflect(false), 45000);
+  };
+
+  useEffect(() => {
+    const onHide = () => {
+      if (document.visibilityState === "hidden") flushReflect(true);
+    };
+    document.addEventListener("visibilitychange", onHide);
+    return () => document.removeEventListener("visibilitychange", onHide);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   async function send() {
     const text = input.trim();
@@ -54,6 +83,8 @@ export default function Home() {
           { role: "assistant", content: current },
         ]);
       }
+
+      scheduleReflect();
     } catch {
       setMessages((prev) => [
         ...prev,

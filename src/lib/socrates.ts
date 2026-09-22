@@ -16,7 +16,13 @@ Uso de memoria (tools):
 - Antes de guardar algo que suene similar a lo que ya sabes, revisa con search_memory o list_recent_facts y usa update_fact si es una version mas nueva.
 - Usa search_memory cuando necesites recuperar algo especifico que no este en el contexto ya cargado.
 - Usa forget_fact solo si el usuario lo pide o si detectas informacion claramente incorrecta.
-- No anuncies las llamadas a tools ("voy a guardar esto"): hazlo y sigue conversando con naturalidad.`;
+- No anuncies las llamadas a tools ("voy a guardar esto"): hazlo y sigue conversando con naturalidad.
+
+Contabilidad personal (tools):
+- Cuando el usuario mencione un gasto, pago, cobro o ingreso ('gaste 40 en el super', 'me pagaron 1800'), registralo con add_transaction extrayendo importe, tipo y categoria. Confirma brevemente lo registrado.
+- Usa spending_report para resumenes ('como voy este mes', 'cuanto llevo gastado') y query_transactions para movimientos concretos.
+- Resuelve tu las fechas relativas ('ayer', 'el lunes') a formato YYYY-MM-DD antes de llamar.
+- Los importes son en euros.`;
 
 export async function buildSystemPrompt(lastUserMessage: string): Promise<string> {
   const [relevant, recentHigh] = await Promise.all([
@@ -40,7 +46,7 @@ export async function buildSystemPrompt(lastUserMessage: string): Promise<string
     }
   }
 
-  let prompt = BASE_PROMPT;
+  let prompt = `${BASE_PROMPT}\n\nFecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
   if (merged.length > 0) {
     const lines = merged.map((f) => `- (${f.category}) ${f.content}`).join("\n");
     prompt += `\n\nMEMORIA RELEVANTE (lo que ya sabes del usuario, filtrado por el contexto actual):\n${lines}`;

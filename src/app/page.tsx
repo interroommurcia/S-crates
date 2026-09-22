@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useRef, useEffect } from "react";
+import Link from "next/link";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -73,6 +74,12 @@ export default function Home() {
           <h1 className="text-lg font-semibold">Sócrates</h1>
           <p className="text-xs text-neutral-400">Tu asistente personal</p>
         </div>
+        <Link
+          href="/finanzas"
+          className="ml-auto text-sm text-neutral-400 hover:text-amber-500 transition-colors"
+        >
+          Finanzas →
+        </Link>
       </header>
 
       <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">

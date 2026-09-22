@@ -1,8 +1,9 @@
 import type { Tool } from "@anthropic-ai/sdk/resources/messages";
 import { supabaseAdmin } from "./supabase-server";
 import { embedOne, embeddingsEnabled } from "./embeddings";
+import { financeTools, financeToolNames, runFinanceTool } from "./finance";
 
-export const tools: Tool[] = [
+const memoryTools: Tool[] = [
   {
     name: "remember_fact",
     description:
@@ -104,12 +105,17 @@ export const tools: Tool[] = [
   },
 ];
 
+export const tools: Tool[] = [...memoryTools, ...financeTools];
+
 type ToolResult = { ok: true; data: unknown } | { ok: false; error: string };
 
 export async function runTool(
   name: string,
   input: Record<string, unknown>
 ): Promise<ToolResult> {
+  if (financeToolNames.has(name)) {
+    return runFinanceTool(name, input);
+  }
   try {
     switch (name) {
       case "remember_fact":

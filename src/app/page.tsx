@@ -2,7 +2,6 @@
 
 import { useState, useRef, useEffect } from "react";
 import Link from "next/link";
-import { startRegistration } from "@simplewebauthn/browser";
 
 type Msg = { role: "user" | "assistant"; content: string };
 
@@ -97,14 +96,14 @@ export default function Home() {
   }
 
   return (
-    <main className="flex flex-col h-screen bg-neutral-950 text-white">
-      <header className="flex items-center gap-3 px-6 py-4 border-b border-neutral-800">
-        <div className="w-10 h-10 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-lg font-bold">
+    <main className="flex flex-col h-[100dvh] bg-neutral-950 text-white">
+      <header className="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 shrink-0">
+        <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-base font-bold shrink-0">
           S
         </div>
-        <div>
-          <h1 className="text-lg font-semibold">Sócrates</h1>
-          <p className="text-xs text-neutral-400">Tu asistente personal</p>
+        <div className="min-w-0">
+          <h1 className="text-base font-semibold leading-tight">Sócrates</h1>
+          <p className="text-xs text-neutral-400 leading-tight">Tu asistente personal</p>
         </div>
         <Link
           href="/finanzas"
@@ -120,27 +119,6 @@ export default function Home() {
         </Link>
         <button
           onClick={async () => {
-            try {
-              const opt = await (
-                await fetch("/api/auth/passkey/register/options", { method: "POST" })
-              ).json();
-              const credential = await startRegistration({ optionsJSON: opt });
-              const res = await fetch("/api/auth/passkey/register/verify", {
-                method: "POST",
-                headers: { "Content-Type": "application/json" },
-                body: JSON.stringify({ credential }),
-              });
-              alert(res.ok ? "Passkey añadido correctamente." : "No se pudo añadir el passkey.");
-            } catch {
-              alert("Registro de passkey cancelado o no disponible.");
-            }
-          }}
-          className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
-        >
-          + Passkey
-        </button>
-        <button
-          onClick={async () => {
             await fetch("/api/auth/logout", { method: "POST" });
             window.location.href = "/login";
           }}
@@ -150,7 +128,7 @@ export default function Home() {
         </button>
       </header>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6 space-y-4">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-neutral-500 gap-4">
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-500/20 to-orange-600/20 flex items-center justify-center text-4xl">
@@ -184,7 +162,7 @@ export default function Home() {
         <div ref={bottomRef} />
       </div>
 
-      <div className="border-t border-neutral-800 px-4 py-4">
+      <div className="border-t border-neutral-800 px-4 py-4 shrink-0 [padding-bottom:calc(1rem+env(safe-area-inset-bottom))]">
         <form
           onSubmit={(e) => {
             e.preventDefault();

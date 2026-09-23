@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
+import { startRegistration } from "@simplewebauthn/browser";
 
 type Protocol = { id: string; title: string; created_at: string; chunks: number };
 type Fact = {
@@ -125,6 +126,23 @@ export default function Admin() {
       if (res.ok) setImportRows(null);
     } finally {
       setImporting(false);
+    }
+  }
+
+  async function addPasskey() {
+    try {
+      const opt = await (
+        await fetch("/api/auth/passkey/register/options", { method: "POST" })
+      ).json();
+      const credential = await startRegistration({ optionsJSON: opt });
+      const res = await fetch("/api/auth/passkey/register/verify", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ credential }),
+      });
+      alert(res.ok ? "Passkey añadido. Ya puedes entrar con Face ID/huella." : "No se pudo añadir el passkey.");
+    } catch {
+      alert("Registro de passkey cancelado o no disponible en este dispositivo.");
     }
   }
 
@@ -314,6 +332,20 @@ export default function Admin() {
               ))}
             </div>
           )}
+        </section>
+
+        <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+          <h2 className="text-sm font-semibold text-neutral-300 mb-2">Seguridad</h2>
+          <p className="text-xs text-neutral-500 mb-4">
+            Añade un passkey para entrar con Face ID o huella en este dispositivo,
+            sin escribir la contraseña. La contraseña sigue funcionando como respaldo.
+          </p>
+          <button
+            onClick={addPasskey}
+            className="border border-neutral-700 hover:border-amber-500 text-neutral-200 rounded-lg px-4 py-2 text-sm font-medium transition-colors"
+          >
+            Añadir passkey en este dispositivo
+          </button>
         </section>
       </div>
     </main>

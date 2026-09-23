@@ -29,6 +29,8 @@ export const INCOME_CATEGORIES = [
   "otros",
 ] as const;
 
+export type Ledger = "personal" | "empresa";
+
 export type Transaction = {
   id: string;
   amount: number;
@@ -37,6 +39,7 @@ export type Transaction = {
   subcategory: string | null;
   description: string | null;
   account: string;
+  ledger: Ledger;
   occurred_at: string;
   created_at: string;
 };
@@ -84,6 +87,11 @@ export const financeTools: Tool[] = [
           type: "string",
           description: "Cuenta/medio: efectivo, banco, tarjeta. Default efectivo.",
         },
+        ledger: {
+          type: "string",
+          enum: ["personal", "empresa"],
+          description: "A que contabilidad pertenece: 'empresa' si es un gasto/ingreso del negocio, 'personal' si no. Default personal. Si el usuario no lo deja claro y podria ser de empresa, preguntaselo.",
+        },
         date: {
           type: "string",
           description:
@@ -108,6 +116,11 @@ export const financeTools: Tool[] = [
           enum: ["income", "expense"],
           description: "Filtrar por tipo (opcional).",
         },
+        ledger: {
+          type: "string",
+          enum: ["personal", "empresa"],
+          description: "Filtrar por contabilidad (opcional). Sin especificar incluye ambas.",
+        },
         limit: { type: "integer", description: "Maximo de filas (default 30)." },
       },
     },
@@ -121,6 +134,11 @@ export const financeTools: Tool[] = [
       properties: {
         from: { type: "string", description: "Fecha inicio YYYY-MM-DD (opcional, default inicio de mes)." },
         to: { type: "string", description: "Fecha fin YYYY-MM-DD (opcional, default fin de mes)." },
+        ledger: {
+          type: "string",
+          enum: ["personal", "empresa"],
+          description: "Contabilidad a resumir (opcional). Sin especificar incluye ambas (conjunto).",
+        },
       },
     },
   },
@@ -174,6 +192,7 @@ async function addTransaction(input: Record<string, unknown>): Promise<ToolResul
     : null;
   const description = input.description ? String(input.description) : null;
   const account = input.account ? String(input.account) : "efectivo";
+  const ledger: Ledger = input.ledger === "empresa" ? "empresa" : "personal";
   const occurred_at =
     typeof input.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(input.date)
       ? input.date
@@ -181,7 +200,7 @@ async function addTransaction(input: Record<string, unknown>): Promise<ToolResul
 
   const { data, error } = await supabaseAdmin
     .from("transactions")
-    .insert({ amount, type, category, subcategory, description, account, occurred_at })
+    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at })
     .select("*")
     .single();
 
@@ -201,6 +220,7 @@ async function queryTransactions(input: Record<string, unknown>): Promise<ToolRe
   if (typeof input.to === "string") q = q.lte("occurred_at", input.to);
   if (typeof input.category === "string") q = q.eq("category", String(input.category).toLowerCase());
   if (input.type === "income" || input.type === "expense") q = q.eq("type", input.type);
+  if (input.ledger === "personal" || input.ledger === "empresa") q = q.eq("ledger", input.ledger);
 
   const { data, error } = await q;
   if (error) return { ok: false, error: error.message };
@@ -216,16 +236,22 @@ async function spendingReport(input: Record<string, unknown>): Promise<ToolResul
       ? { from: (input.from as string) ?? "1900-01-01", to: (input.to as string) ?? today() }
       : monthRange();
 
-  const report = await computeReport(from, to);
-  return { ok: true, data: report };
+  const ledger =
+    input.ledger === "personal" || input.ledger === "empresa"
+      ? (input.ledger as Ledger)
+      : undefined;
+  const report = await computeReport(from, to, ledger);
+  return { ok: true, data: { ...report, ledger: ledger ?? "conjunto" } };
 }
 
-export async function computeReport(from: string, to: string) {
-  const { data, error } = await supabaseAdmin
+export async function computeReport(from: string, to: string, ledger?: Ledger) {
+  let q = supabaseAdmin
     .from("transactions")
     .select("amount, type, category, occurred_at")
     .gte("occurred_at", from)
     .lte("occurred_at", to);
+  if (ledger) q = q.eq("ledger", ledger);
+  const { data, error } = await q;
 
   if (error) throw new Error(error.message);
   const rows = (data ?? []) as Pick<Transaction, "amount" | "type" | "category" | "occurred_at">[];
@@ -259,7 +285,8 @@ export async function computeReport(from: string, to: string) {
 
 export async function monthlySeries(
   endRef: Date,
-  count = 6
+  count = 6,
+  ledger?: Ledger
 ): Promise<{ month: string; income: number; expense: number }[]> {
   const y = endRef.getUTCFullYear();
   const m = endRef.getUTCMonth();
@@ -268,11 +295,13 @@ export async function monthlySeries(
   const from = start.toISOString().slice(0, 10);
   const to = end.toISOString().slice(0, 10);
 
-  const { data } = await supabaseAdmin
+  let sq = supabaseAdmin
     .from("transactions")
     .select("amount, type, occurred_at")
     .gte("occurred_at", from)
     .lte("occurred_at", to);
+  if (ledger) sq = sq.eq("ledger", ledger);
+  const { data } = await sq;
 
   const buckets: Record<string, { income: number; expense: number }> = {};
   for (let i = 0; i < count; i++) {

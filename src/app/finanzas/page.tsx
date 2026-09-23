@@ -32,8 +32,11 @@ function currentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
+type LedgerFilter = "conjunto" | "personal" | "empresa";
+
 export default function Finanzas() {
   const [month, setMonth] = useState(currentMonth);
+  const [ledger, setLedger] = useState<LedgerFilter>("personal");
   const [report, setReport] = useState<Report | null>(null);
   const [txs, setTxs] = useState<Tx[]>([]);
   const [series, setSeries] = useState<SeriesPoint[]>([]);
@@ -42,7 +45,8 @@ export default function Finanzas() {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/finance?month=${month}`);
+      const q = ledger === "conjunto" ? "" : `&ledger=${ledger}`;
+      const res = await fetch(`/api/finance?month=${month}${q}`);
       if (!res.ok) return; // 500 transitorio: conserva datos previos
       const data = await res.json();
       setReport(data.report);
@@ -53,7 +57,7 @@ export default function Finanzas() {
     } finally {
       setLoading(false);
     }
-  }, [month]);
+  }, [month, ledger]);
 
   useEffect(() => {
     load();
@@ -95,6 +99,22 @@ export default function Finanzas() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <div className="inline-flex rounded-xl border border-neutral-800 bg-neutral-900 p-1">
+          {(["personal", "empresa", "conjunto"] as LedgerFilter[]).map((l) => (
+            <button
+              key={l}
+              onClick={() => setLedger(l)}
+              className={`px-4 py-1.5 rounded-lg text-sm capitalize transition-colors ${
+                ledger === l
+                  ? "bg-amber-600 text-white"
+                  : "text-neutral-400 hover:text-white"
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+
         <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
           <Card label="Ingresos" value={report?.income ?? 0} accent="text-emerald-400" />
           <Card label="Gastos" value={report?.expense ?? 0} accent="text-rose-400" />

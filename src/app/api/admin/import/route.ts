@@ -9,11 +9,13 @@ export async function POST(req: Request) {
       csv?: string;
       rows?: ParsedTx[];
       commit?: boolean;
+      ledger?: "personal" | "empresa";
     };
 
     // Paso 2: confirmar e insertar filas ya revisadas
     if (body.commit && Array.isArray(body.rows)) {
-      const inserted = await insertTransactions(body.rows);
+      const ledger = body.ledger === "empresa" ? "empresa" : "personal";
+      const inserted = await insertTransactions(body.rows, ledger);
       return Response.json({ inserted });
     }
 

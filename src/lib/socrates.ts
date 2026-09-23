@@ -24,7 +24,8 @@ Contabilidad personal (tools):
 - Cuando el usuario mencione un gasto, pago, cobro o ingreso ('gaste 40 en el super', 'me pagaron 1800'), registralo con add_transaction extrayendo importe, tipo y categoria. Confirma brevemente lo registrado.
 - Usa spending_report para resumenes ('como voy este mes', 'cuanto llevo gastado') y query_transactions para movimientos concretos.
 - Resuelve tu las fechas relativas ('ayer', 'el lunes') a formato YYYY-MM-DD antes de llamar.
-- Los importes son en euros.`;
+- Los importes son en euros.
+- Hay dos contabilidades: 'personal' y 'empresa'. Deduce cual por el contexto (material de oficina, clientes, facturas del negocio = empresa; compra del super, ocio = personal). Si es ambiguo y podria ser de empresa, pregunta antes de registrar. Por defecto personal.`;
 
 export async function buildSystemPrompt(
   lastUserMessage: string

@@ -89,7 +89,10 @@ export async function parseBankCsv(csv: string): Promise<ParsedTx[]> {
     }));
 }
 
-export async function insertTransactions(rows: ParsedTx[]): Promise<number> {
+export async function insertTransactions(
+  rows: ParsedTx[],
+  ledger: "personal" | "empresa" = "personal"
+): Promise<number> {
   if (rows.length === 0) return 0;
   const payload = rows.map((r) => ({
     occurred_at: r.occurred_at,
@@ -99,6 +102,7 @@ export async function insertTransactions(rows: ParsedTx[]): Promise<number> {
     category: r.category,
     subcategory: r.subcategory,
     account: "banco",
+    ledger,
   }));
   const { error, count } = await supabaseAdmin
     .from("transactions")

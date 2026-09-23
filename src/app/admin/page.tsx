@@ -33,6 +33,7 @@ export default function Admin() {
   const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
   const [importing, setImporting] = useState(false);
   const [importMsg, setImportMsg] = useState("");
+  const [importLedger, setImportLedger] = useState<"personal" | "empresa">("personal");
 
   const load = useCallback(async () => {
     try {
@@ -119,7 +120,7 @@ export default function Admin() {
       const res = await fetch("/api/admin/import", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ rows: importRows, commit: true }),
+        body: JSON.stringify({ rows: importRows, commit: true, ledger: importLedger }),
       });
       const data = await res.json();
       setImportMsg(res.ok ? `${data.inserted} movimientos importados ✓` : (data.error ?? "Error"));
@@ -228,6 +229,22 @@ export default function Admin() {
             Exporta el CSV de tu banco y súbelo. Sócrates detecta las columnas y
             categoriza cada movimiento. Revisa antes de confirmar.
           </p>
+          <div className="flex items-center gap-3 mb-3">
+            <span className="text-xs text-neutral-500">Contabilidad:</span>
+            <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-950 p-0.5">
+              {(["personal", "empresa"] as const).map((l) => (
+                <button
+                  key={l}
+                  onClick={() => setImportLedger(l)}
+                  className={`px-3 py-1 rounded-md text-xs capitalize ${
+                    importLedger === l ? "bg-amber-600 text-white" : "text-neutral-400"
+                  }`}
+                >
+                  {l}
+                </button>
+              ))}
+            </div>
+          </div>
           <input
             type="file"
             accept=".csv,text/csv"

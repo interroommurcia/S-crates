@@ -111,7 +111,9 @@ export async function reflectOnConversation(
   const resp = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 1500,
-    system: REFLECT_SYSTEM,
+    system: [
+      { type: "text", text: REFLECT_SYSTEM, cache_control: { type: "ephemeral" } },
+    ],
     tools: [reflectionTool],
     tool_choice: { type: "tool", name: "submit_reflection" },
     messages: [

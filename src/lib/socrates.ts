@@ -1,3 +1,4 @@
+import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "./supabase-server";
 import { retrieveRelevantFacts } from "./tools";
 
@@ -24,7 +25,9 @@ Contabilidad personal (tools):
 - Resuelve tu las fechas relativas ('ayer', 'el lunes') a formato YYYY-MM-DD antes de llamar.
 - Los importes son en euros.`;
 
-export async function buildSystemPrompt(lastUserMessage: string): Promise<string> {
+export async function buildSystemPrompt(
+  lastUserMessage: string
+): Promise<Anthropic.TextBlockParam[]> {
   const [relevant, recentHigh] = await Promise.all([
     retrieveRelevantFacts(lastUserMessage, 6),
     supabaseAdmin
@@ -46,12 +49,22 @@ export async function buildSystemPrompt(lastUserMessage: string): Promise<string
     }
   }
 
-  let prompt = `${BASE_PROMPT}\n\nFecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
+  // Cache breakpoint en el ULTIMO bloque estable de la conversacion (tools +
+  // base + memoria). Haiku 4.5 solo cachea prefijos >= ~4096 tokens; hoy el
+  // prefijo es menor y no cachea, pero al crecer (protocolos/RAG) se activa solo.
+  const base = `${BASE_PROMPT}\n\nFecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
+  const blocks: Anthropic.TextBlockParam[] = [{ type: "text", text: base }];
+
   if (merged.length > 0) {
     const lines = merged.map((f) => `- (${f.category}) ${f.content}`).join("\n");
-    prompt += `\n\nMEMORIA RELEVANTE (lo que ya sabes del usuario, filtrado por el contexto actual):\n${lines}`;
+    blocks.push({
+      type: "text",
+      text: `MEMORIA RELEVANTE (lo que ya sabes del usuario, filtrado por el contexto actual):\n${lines}`,
+    });
   }
-  return prompt;
+
+  blocks[blocks.length - 1].cache_control = { type: "ephemeral" };
+  return blocks;
 }
 
 export type Mensaje = {

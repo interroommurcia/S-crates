@@ -60,6 +60,10 @@ export async function POST(req: Request) {
             }
 
             const final = await s.finalMessage();
+            const u = final.usage;
+            console.log(
+              `[usage] in=${u.input_tokens} out=${u.output_tokens} cacheWrite=${u.cache_creation_input_tokens ?? 0} cacheRead=${u.cache_read_input_tokens ?? 0}`
+            );
             convo.push({ role: "assistant", content: final.content });
 
             if (final.stop_reason !== "tool_use") break;

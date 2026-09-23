@@ -21,6 +21,18 @@ export default function Admin() {
   const [saving, setSaving] = useState(false);
   const [msg, setMsg] = useState("");
 
+  type ImportRow = {
+    occurred_at: string;
+    description: string;
+    amount: number;
+    type: "income" | "expense";
+    category: string;
+    subcategory: string | null;
+  };
+  const [importRows, setImportRows] = useState<ImportRow[] | null>(null);
+  const [importing, setImporting] = useState(false);
+  const [importMsg, setImportMsg] = useState("");
+
   const load = useCallback(async () => {
     const [p, f] = await Promise.all([
       fetch("/api/admin/protocols").then((r) => r.json()),
@@ -65,6 +77,51 @@ export default function Admin() {
     const text = await file.text();
     setContent(text);
     if (!title.trim()) setTitle(file.name.replace(/\.[^.]+$/, ""));
+  }
+
+  async function onCsvFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    setImporting(true);
+    setImportMsg("Analizando y categorizando…");
+    setImportRows(null);
+    try {
+      const csv = await file.text();
+      const res = await fetch("/api/admin/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ csv }),
+      });
+      const data = await res.json();
+      if (res.ok) {
+        setImportRows(data.rows ?? []);
+        setImportMsg(`${data.rows?.length ?? 0} movimientos detectados. Revisa y confirma.`);
+      } else {
+        setImportMsg(data.error ?? "Error");
+      }
+    } catch {
+      setImportMsg("Error leyendo el archivo");
+    } finally {
+      setImporting(false);
+      e.target.value = "";
+    }
+  }
+
+  async function confirmImport() {
+    if (!importRows || importRows.length === 0) return;
+    setImporting(true);
+    try {
+      const res = await fetch("/api/admin/import", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ rows: importRows, commit: true }),
+      });
+      const data = await res.json();
+      setImportMsg(res.ok ? `${data.inserted} movimientos importados ✓` : (data.error ?? "Error"));
+      if (res.ok) setImportRows(null);
+    } finally {
+      setImporting(false);
+    }
   }
 
   async function delProtocol(id: string) {
@@ -139,6 +196,63 @@ export default function Admin() {
             </div>
             {msg && <p className="text-xs text-amber-400">{msg}</p>}
           </form>
+        </section>
+
+        <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+          <h2 className="text-sm font-semibold text-neutral-300 mb-2">
+            Importar CSV del banco
+          </h2>
+          <p className="text-xs text-neutral-500 mb-4">
+            Exporta el CSV de tu banco y súbelo. Sócrates detecta las columnas y
+            categoriza cada movimiento. Revisa antes de confirmar.
+          </p>
+          <input
+            type="file"
+            accept=".csv,text/csv"
+            onChange={onCsvFile}
+            disabled={importing}
+            className="text-xs text-neutral-400 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-800 file:px-3 file:py-1.5 file:text-neutral-200"
+          />
+          {importMsg && <p className="text-xs text-amber-400 mt-3">{importMsg}</p>}
+
+          {importRows && importRows.length > 0 && (
+            <div className="mt-4">
+              <div className="max-h-72 overflow-y-auto rounded-lg border border-neutral-800">
+                <table className="w-full text-xs">
+                  <thead className="sticky top-0 bg-neutral-950 text-neutral-500">
+                    <tr>
+                      <th className="text-left px-2 py-1.5">Fecha</th>
+                      <th className="text-left px-2 py-1.5">Concepto</th>
+                      <th className="text-left px-2 py-1.5">Categoría</th>
+                      <th className="text-right px-2 py-1.5">Importe</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-neutral-800">
+                    {importRows.map((r, i) => (
+                      <tr key={i}>
+                        <td className="px-2 py-1.5 text-neutral-400 whitespace-nowrap">{r.occurred_at}</td>
+                        <td className="px-2 py-1.5 truncate max-w-[180px]">{r.description}</td>
+                        <td className="px-2 py-1.5 text-neutral-400">
+                          {r.category}
+                          {r.subcategory ? <span className="text-neutral-600"> · {r.subcategory}</span> : null}
+                        </td>
+                        <td className={`px-2 py-1.5 text-right tabular-nums ${r.type === "income" ? "text-emerald-400" : "text-rose-400"}`}>
+                          {r.type === "income" ? "+" : "−"}{r.amount.toFixed(2)}€
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <button
+                onClick={confirmImport}
+                disabled={importing}
+                className="mt-3 bg-amber-600 hover:bg-amber-500 disabled:opacity-40 text-white rounded-lg px-4 py-2 text-sm font-medium"
+              >
+                {importing ? "Importando…" : `Confirmar importación (${importRows.length})`}
+              </button>
+            </div>
+          )}
         </section>
 
         <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">

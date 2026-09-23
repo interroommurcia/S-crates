@@ -34,6 +34,7 @@ export type Transaction = {
   amount: number;
   type: "income" | "expense";
   category: string;
+  subcategory: string | null;
   description: string | null;
   account: string;
   occurred_at: string;
@@ -70,6 +71,10 @@ export const financeTools: Tool[] = [
           type: "string",
           description:
             "Categoria. Para gastos usa una de: alimentacion, restaurantes, transporte, vivienda, suministros, salud, ocio, ropa, educacion, viajes, regalos, suscripciones, impuestos, trabajo, otros. Para ingresos: salario, freelance, ventas, alquiler, intereses, regalo, otros.",
+        },
+        subcategory: {
+          type: "string",
+          description: "Subcategoria concreta para analisis (ej: 'supermercado', 'gasolina', 'netflix'). Opcional.",
         },
         description: {
           type: "string",
@@ -164,6 +169,9 @@ async function addTransaction(input: Record<string, unknown>): Promise<ToolResul
   if (!(amount > 0)) return { ok: false, error: "amount debe ser positivo" };
   const type = input.type === "income" ? "income" : "expense";
   const category = String(input.category ?? "otros").trim().toLowerCase() || "otros";
+  const subcategory = input.subcategory
+    ? String(input.subcategory).trim().toLowerCase() || null
+    : null;
   const description = input.description ? String(input.description) : null;
   const account = input.account ? String(input.account) : "efectivo";
   const occurred_at =
@@ -173,7 +181,7 @@ async function addTransaction(input: Record<string, unknown>): Promise<ToolResul
 
   const { data, error } = await supabaseAdmin
     .from("transactions")
-    .insert({ amount, type, category, description, account, occurred_at })
+    .insert({ amount, type, category, subcategory, description, account, occurred_at })
     .select("*")
     .single();
 

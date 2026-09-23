@@ -8,10 +8,13 @@ type Tx = {
   amount: number;
   type: "income" | "expense";
   category: string;
+  subcategory: string | null;
   description: string | null;
   account: string;
   occurred_at: string;
 };
+
+type SeriesPoint = { month: string; income: number; expense: number };
 
 type Report = {
   period: { from: string; to: string };
@@ -33,15 +36,20 @@ export default function Finanzas() {
   const [month, setMonth] = useState(currentMonth);
   const [report, setReport] = useState<Report | null>(null);
   const [txs, setTxs] = useState<Tx[]>([]);
+  const [series, setSeries] = useState<SeriesPoint[]>([]);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`/api/finance?month=${month}`);
+      if (!res.ok) return; // 500 transitorio: conserva datos previos
       const data = await res.json();
       setReport(data.report);
       setTxs(data.transactions ?? []);
+      setSeries(data.series ?? []);
+    } catch {
+      /* red: conserva datos previos */
     } finally {
       setLoading(false);
     }
@@ -98,6 +106,13 @@ export default function Finanzas() {
         </section>
 
         <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+          <h2 className="text-sm font-semibold text-neutral-300 mb-4">
+            Ingresos vs gastos (últimos 6 meses)
+          </h2>
+          <MonthlyChart data={series} />
+        </section>
+
+        <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
           <h2 className="text-sm font-semibold text-neutral-300 mb-4">Gastos por categoría</h2>
           {loading ? (
             <p className="text-neutral-500 text-sm">Cargando…</p>
@@ -138,6 +153,9 @@ export default function Finanzas() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm truncate">
                       <span className="capitalize">{t.category}</span>
+                      {t.subcategory ? (
+                        <span className="text-neutral-500"> / {t.subcategory}</span>
+                      ) : null}
                       {t.description ? (
                         <span className="text-neutral-400"> · {t.description}</span>
                       ) : null}
@@ -168,6 +186,68 @@ export default function Finanzas() {
         </section>
       </div>
     </main>
+  );
+}
+
+function MonthlyChart({ data }: { data: SeriesPoint[] }) {
+  if (data.length === 0) {
+    return <p className="text-neutral-500 text-sm">Sin datos.</p>;
+  }
+  const W = 620;
+  const H = 180;
+  const pad = { top: 10, bottom: 24, left: 8, right: 8 };
+  const max = Math.max(1, ...data.map((d) => Math.max(d.income, d.expense)));
+  const groupW = (W - pad.left - pad.right) / data.length;
+  const barW = Math.min(18, groupW / 3);
+  const chartH = H - pad.top - pad.bottom;
+  const y = (v: number) => pad.top + chartH * (1 - v / max);
+
+  const monthLabel = (m: string) => {
+    const d = new Date(`${m}-01T00:00:00Z`);
+    return d.toLocaleDateString("es-ES", { month: "short" });
+  };
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 420 }}>
+        {data.map((d, i) => {
+          const cx = pad.left + groupW * i + groupW / 2;
+          return (
+            <g key={d.month}>
+              <rect
+                x={cx - barW - 1}
+                y={y(d.income)}
+                width={barW}
+                height={pad.top + chartH - y(d.income)}
+                rx={2}
+                fill="#34d399"
+              />
+              <rect
+                x={cx + 1}
+                y={y(d.expense)}
+                width={barW}
+                height={pad.top + chartH - y(d.expense)}
+                rx={2}
+                fill="#fb7185"
+              />
+              <text x={cx} y={H - 8} textAnchor="middle" fontSize="11" fill="#a3a3a3">
+                {monthLabel(d.month)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+      <div className="flex gap-4 justify-center mt-2 text-xs text-neutral-400">
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "#34d399" }} />
+          Ingresos
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "#fb7185" }} />
+          Gastos
+        </span>
+      </div>
+    </div>
   );
 }
 

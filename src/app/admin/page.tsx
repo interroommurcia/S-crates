@@ -34,12 +34,16 @@ export default function Admin() {
   const [importMsg, setImportMsg] = useState("");
 
   const load = useCallback(async () => {
-    const [p, f] = await Promise.all([
-      fetch("/api/admin/protocols").then((r) => r.json()),
-      fetch("/api/admin/facts").then((r) => r.json()),
-    ]);
-    setProtocols(Array.isArray(p) ? p : []);
-    setFacts(Array.isArray(f) ? f : []);
+    try {
+      const [p, f] = await Promise.all([
+        fetch("/api/admin/protocols").then((r) => (r.ok ? r.json() : [])),
+        fetch("/api/admin/facts").then((r) => (r.ok ? r.json() : [])),
+      ]);
+      setProtocols(Array.isArray(p) ? p : []);
+      setFacts(Array.isArray(f) ? f : []);
+    } catch {
+      /* red: conserva datos previos */
+    }
   }, []);
 
   useEffect(() => {

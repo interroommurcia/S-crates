@@ -257,6 +257,42 @@ export async function computeReport(from: string, to: string) {
   };
 }
 
+export async function monthlySeries(
+  endRef: Date,
+  count = 6
+): Promise<{ month: string; income: number; expense: number }[]> {
+  const y = endRef.getUTCFullYear();
+  const m = endRef.getUTCMonth();
+  const start = new Date(Date.UTC(y, m - (count - 1), 1));
+  const end = new Date(Date.UTC(y, m + 1, 0));
+  const from = start.toISOString().slice(0, 10);
+  const to = end.toISOString().slice(0, 10);
+
+  const { data } = await supabaseAdmin
+    .from("transactions")
+    .select("amount, type, occurred_at")
+    .gte("occurred_at", from)
+    .lte("occurred_at", to);
+
+  const buckets: Record<string, { income: number; expense: number }> = {};
+  for (let i = 0; i < count; i++) {
+    const d = new Date(Date.UTC(y, m - (count - 1) + i, 1));
+    buckets[d.toISOString().slice(0, 7)] = { income: 0, expense: 0 };
+  }
+  for (const r of data ?? []) {
+    const key = String(r.occurred_at).slice(0, 7);
+    if (!buckets[key]) continue;
+    if (r.type === "income") buckets[key].income += Number(r.amount);
+    else buckets[key].expense += Number(r.amount);
+  }
+
+  return Object.entries(buckets).map(([month, v]) => ({
+    month,
+    income: round2(v.income),
+    expense: round2(v.expense),
+  }));
+}
+
 async function deleteTransaction(input: Record<string, unknown>): Promise<ToolResult> {
   const id = String(input.id ?? "");
   if (!id) return { ok: false, error: "id vacio" };

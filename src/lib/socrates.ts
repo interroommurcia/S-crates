@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "./supabase-server";
 import { retrieveRelevantFacts } from "./tools";
+import { getProtocolContext } from "./protocols";
 
 const BASE_PROMPT = `Eres Socrates, el asistente personal de IA de tu usuario.
 
@@ -28,7 +29,7 @@ Contabilidad personal (tools):
 export async function buildSystemPrompt(
   lastUserMessage: string
 ): Promise<Anthropic.TextBlockParam[]> {
-  const [relevant, recentHigh] = await Promise.all([
+  const [relevant, stableFacts, protocolContext] = await Promise.all([
     retrieveRelevantFacts(lastUserMessage, 6),
     supabaseAdmin
       .from("facts")
@@ -36,34 +37,49 @@ export async function buildSystemPrompt(
       .gte("importance", 4)
       .order("importance", { ascending: false })
       .order("updated_at", { ascending: false })
-      .limit(15)
+      .limit(20)
       .then((r) => r.data ?? []),
+    getProtocolContext(),
   ]);
 
-  const seen = new Set<string>();
-  const merged: { content: string; category: string }[] = [];
-  for (const f of [...recentHigh, ...relevant]) {
-    if (!seen.has(f.content)) {
-      seen.add(f.content);
-      merged.push({ content: f.content, category: f.category });
-    }
-  }
-
-  // Cache breakpoint en el ULTIMO bloque estable de la conversacion (tools +
-  // base + memoria). Haiku 4.5 solo cachea prefijos >= ~4096 tokens; hoy el
-  // prefijo es menor y no cachea, pero al crecer (protocolos/RAG) se activa solo.
+  // --- Prefijo ESTABLE (cacheable dentro de una conversacion) ---
   const base = `${BASE_PROMPT}\n\nFecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
   const blocks: Anthropic.TextBlockParam[] = [{ type: "text", text: base }];
 
-  if (merged.length > 0) {
-    const lines = merged.map((f) => `- (${f.category}) ${f.content}`).join("\n");
+  if (protocolContext) {
     blocks.push({
       type: "text",
-      text: `MEMORIA RELEVANTE (lo que ya sabes del usuario, filtrado por el contexto actual):\n${lines}`,
+      text: `PROTOCOLOS Y CONOCIMIENTO (siguelos siempre que apliquen):\n${protocolContext}`,
     });
   }
 
+  const stableSet = new Set<string>();
+  if (stableFacts.length > 0) {
+    const lines = stableFacts
+      .map((f) => {
+        stableSet.add(f.content);
+        return `- (${f.category}) ${f.content}`;
+      })
+      .join("\n");
+    blocks.push({
+      type: "text",
+      text: `LO QUE SABES DEL USUARIO (memoria estable):\n${lines}`,
+    });
+  }
+
+  // Cache breakpoint tras todo lo estable: tools + base + protocolos + memoria estable.
   blocks[blocks.length - 1].cache_control = { type: "ephemeral" };
+
+  // --- Parte VOLATIL (relevante a la consulta actual, fuera de cache) ---
+  const extra = relevant.filter((f) => !stableSet.has(f.content));
+  if (extra.length > 0) {
+    const lines = extra.map((f) => `- (${f.category}) ${f.content}`).join("\n");
+    blocks.push({
+      type: "text",
+      text: `RELEVANTE PARA ESTE MENSAJE:\n${lines}`,
+    });
+  }
+
   return blocks;
 }
 

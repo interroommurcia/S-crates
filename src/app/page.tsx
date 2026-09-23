@@ -110,7 +110,13 @@ export default function Home() {
           href="/finanzas"
           className="ml-auto text-sm text-neutral-400 hover:text-amber-500 transition-colors"
         >
-          Finanzas →
+          Finanzas
+        </Link>
+        <Link
+          href="/admin"
+          className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
+        >
+          Admin
         </Link>
         <button
           onClick={async () => {

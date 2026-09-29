@@ -50,6 +50,7 @@ export type Transaction = {
   description: string | null;
   account: string;
   ledger: Ledger;
+  receipt_path: string | null;
   occurred_at: string;
   created_at: string;
 };

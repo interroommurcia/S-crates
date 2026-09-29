@@ -13,6 +13,7 @@ type Tx = {
   subcategory: string | null;
   description: string | null;
   account: string;
+  receipt_path: string | null;
   occurred_at: string;
 };
 
@@ -236,6 +237,19 @@ export default function Finanzas() {
                     </p>
                     <p className="text-xs text-neutral-500">
                       {t.occurred_at} · {t.account}
+                      {t.receipt_path ? (
+                        <>
+                          {" · "}
+                          <a
+                            href={`/api/finance/receipt?path=${encodeURIComponent(t.receipt_path)}`}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="text-amber-400 hover:underline"
+                          >
+                            📎 factura
+                          </a>
+                        </>
+                      ) : null}
                     </p>
                   </div>
                   <span
@@ -295,6 +309,7 @@ function NewTxForm({
   const [description, setDescription] = useState("");
   const [account, setAccount] = useState("banco");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -314,9 +329,26 @@ function NewTxForm({
       setError("Introduce un importe válido.");
       return;
     }
+    if (file && file.type !== "application/pdf") {
+      setError("La factura debe ser un PDF.");
+      return;
+    }
     setSaving(true);
     setError(null);
     try {
+      let receipt_path: string | undefined;
+      if (file) {
+        const fd = new FormData();
+        fd.append("file", file);
+        const up = await fetch("/api/finance/receipt", { method: "POST", body: fd });
+        const upData = await up.json();
+        if (!up.ok) {
+          setError(upData.error ?? "No se pudo subir el PDF.");
+          return;
+        }
+        receipt_path = upData.path;
+      }
+
       const res = await fetch("/api/finance", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -329,6 +361,7 @@ function NewTxForm({
           description: description.trim() || undefined,
           account: account.trim() || undefined,
           date,
+          receipt_path,
         }),
       });
       const data = await res.json();
@@ -466,6 +499,16 @@ function NewTxForm({
             onChange={(e) => setDescription(e.target.value)}
             placeholder="opcional"
             className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+          />
+        </label>
+
+        <label className="block">
+          <span className="text-xs text-neutral-400">Factura (PDF, opcional)</span>
+          <input
+            type="file"
+            accept="application/pdf"
+            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+            className="mt-1 w-full text-sm text-neutral-400 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-800 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-neutral-700"
           />
         </label>
 

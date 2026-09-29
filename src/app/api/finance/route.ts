@@ -56,10 +56,12 @@ export async function POST(req: Request) {
     typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date)
       ? body.date
       : new Date().toISOString().slice(0, 10);
+  const receipt_path =
+    typeof body.receipt_path === "string" && body.receipt_path ? body.receipt_path : null;
 
   const { data, error } = await supabaseAdmin
     .from("transactions")
-    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at })
+    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at, receipt_path })
     .select("*")
     .single();
 
@@ -69,6 +71,17 @@ export async function POST(req: Request) {
 
 export async function DELETE(req: Request) {
   const { id } = await req.json();
+
+  // Borra el PDF adjunto del bucket si existe
+  const { data: tx } = await supabaseAdmin
+    .from("transactions")
+    .select("receipt_path")
+    .eq("id", id)
+    .single();
+  if (tx?.receipt_path) {
+    await supabaseAdmin.storage.from("receipts").remove([tx.receipt_path]);
+  }
+
   const { error } = await supabaseAdmin.from("transactions").delete().eq("id", id);
   if (error) return Response.json({ error: error.message }, { status: 500 });
   return Response.json({ ok: true });

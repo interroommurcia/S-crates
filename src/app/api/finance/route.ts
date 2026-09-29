@@ -1,5 +1,12 @@
 import { supabaseAdmin } from "@/lib/supabase-server";
-import { computeReport, monthRange, monthlySeries, type Transaction, type Ledger } from "@/lib/finance";
+import {
+  computeReport,
+  monthRange,
+  monthlySeries,
+  ensureRecurringForMonth,
+  type Transaction,
+  type Ledger,
+} from "@/lib/finance";
 
 export const runtime = "nodejs";
 
@@ -18,6 +25,9 @@ export async function GET(req: Request) {
   const ledgerParam = url.searchParams.get("ledger");
   const ledger: Ledger | undefined =
     ledgerParam === "personal" || ledgerParam === "empresa" ? ledgerParam : undefined;
+
+  // Genera los gastos fijos de este mes si aun no existen.
+  await ensureRecurringForMonth(refDate.toISOString().slice(0, 7));
 
   let txq = supabaseAdmin
     .from("transactions")

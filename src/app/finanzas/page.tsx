@@ -17,6 +17,18 @@ type Tx = {
   occurred_at: string;
 };
 
+type Recurring = {
+  id: string;
+  amount: number;
+  type: "expense" | "tax";
+  category: string;
+  subcategory: string | null;
+  description: string | null;
+  account: string;
+  ledger: "personal" | "empresa";
+  day_of_month: number;
+};
+
 type SeriesPoint = { month: string; income: number; expense: number; tax: number };
 
 type Report = {
@@ -59,6 +71,7 @@ export default function Finanzas() {
   const [series, setSeries] = useState<SeriesPoint[]>([]);
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
+  const [showRecurring, setShowRecurring] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -133,12 +146,20 @@ export default function Finanzas() {
               </button>
             ))}
           </div>
-          <button
-            onClick={() => setShowForm(true)}
-            className="shrink-0 rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm font-medium transition-colors"
-          >
-            + Añadir
-          </button>
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowRecurring(true)}
+              className="shrink-0 rounded-xl border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 px-4 py-2 text-sm font-medium transition-colors"
+            >
+              Fijos
+            </button>
+            <button
+              onClick={() => setShowForm(true)}
+              className="shrink-0 rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm font-medium transition-colors"
+            >
+              + Añadir
+            </button>
+          </div>
         </div>
 
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
@@ -286,6 +307,14 @@ export default function Finanzas() {
             setShowForm(false);
             load();
           }}
+        />
+      )}
+
+      {showRecurring && (
+        <RecurringModal
+          defaultLedger={ledger === "conjunto" ? "personal" : ledger}
+          onClose={() => setShowRecurring(false)}
+          onChanged={load}
         />
       )}
     </main>
@@ -595,6 +624,266 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
           <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "#fbbf24" }} />
           Impuestos
         </span>
+      </div>
+    </div>
+  );
+}
+
+function RecurringModal({
+  defaultLedger,
+  onClose,
+  onChanged,
+}: {
+  defaultLedger: "personal" | "empresa";
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [items, setItems] = useState<Recurring[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [type, setType] = useState<"expense" | "tax">("expense");
+  const [ledger, setLedger] = useState<"personal" | "empresa">(defaultLedger);
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
+  const [description, setDescription] = useState("");
+  const [account, setAccount] = useState("banco");
+  const [day, setDay] = useState("1");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cats = type === "tax" ? TAX_CATEGORIES : EXPENSE_CATEGORIES;
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch("/api/finance/recurring");
+      if (res.ok) setItems((await res.json()).recurring ?? []);
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  function changeType(t: "expense" | "tax") {
+    setType(t);
+    setCategory((t === "tax" ? TAX_CATEGORIES : EXPENSE_CATEGORIES)[0]);
+  }
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const value = Number(amount.replace(",", "."));
+    if (!(value > 0)) {
+      setError("Introduce un importe válido.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/finance/recurring", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: value,
+          type,
+          ledger,
+          category,
+          description: description.trim() || undefined,
+          account: account.trim() || undefined,
+          day_of_month: Number(day) || 1,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "No se pudo guardar.");
+        return;
+      }
+      setAmount("");
+      setDescription("");
+      await load();
+      onChanged();
+    } catch {
+      setError("Error de red.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!confirm("¿Eliminar este gasto fijo? Los ya registrados se conservan.")) return;
+    await fetch("/api/finance/recurring", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    await load();
+    onChanged();
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full sm:max-w-md bg-neutral-900 border border-neutral-800 rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Gastos fijos mensuales</h2>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
+            ✕
+          </button>
+        </div>
+
+        <p className="text-xs text-neutral-500">
+          Se registran solos cada mes en el día indicado.
+        </p>
+
+        {loading ? (
+          <p className="text-neutral-500 text-sm">Cargando…</p>
+        ) : items.length === 0 ? (
+          <p className="text-neutral-500 text-sm">Sin gastos fijos todavía.</p>
+        ) : (
+          <div className="divide-y divide-neutral-800">
+            {items.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 py-2 group">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">
+                    <span className="capitalize">{r.category}</span>
+                    {r.description ? (
+                      <span className="text-neutral-400"> · {r.description}</span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-neutral-500">
+                    día {r.day_of_month} · {r.ledger} · {r.account}
+                    {r.type === "tax" ? " · impuesto" : ""}
+                  </p>
+                </div>
+                <span className="text-sm font-medium tabular-nums text-rose-400">
+                  {eur(r.amount)}
+                </span>
+                <button
+                  onClick={() => remove(r.id)}
+                  className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 transition text-xs"
+                  aria-label="Eliminar"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={add} className="space-y-3 border-t border-neutral-800 pt-4">
+          <div className="grid grid-cols-2 gap-2">
+            {(["expense", "tax"] as const).map((t) => (
+              <button
+                key={t}
+                type="button"
+                onClick={() => changeType(t)}
+                className={`py-2 rounded-lg text-sm font-medium transition-colors ${
+                  type === t
+                    ? t === "tax"
+                      ? "bg-amber-600 text-white"
+                      : "bg-rose-600 text-white"
+                    : "bg-neutral-800 text-neutral-400 hover:text-white"
+                }`}
+              >
+                {t === "tax" ? "Impuesto" : "Gasto"}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-2">
+            {(["personal", "empresa"] as const).map((l) => (
+              <button
+                key={l}
+                type="button"
+                onClick={() => setLedger(l)}
+                className={`py-2 rounded-lg text-sm capitalize transition-colors ${
+                  ledger === l ? "bg-amber-600 text-white" : "bg-neutral-800 text-neutral-400 hover:text-white"
+                }`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs text-neutral-400">Importe (€)</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0,00"
+                className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-neutral-400">Día del mes</span>
+              <input
+                type="number"
+                min={1}
+                max={28}
+                value={day}
+                onChange={(e) => setDay(e.target.value)}
+                className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs text-neutral-400">Categoría</span>
+              <select
+                value={category}
+                onChange={(e) => setCategory(e.target.value)}
+                className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm capitalize"
+              >
+                {cats.map((c) => (
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label className="block">
+              <span className="text-xs text-neutral-400">Cuenta</span>
+              <input
+                type="text"
+                value={account}
+                onChange={(e) => setAccount(e.target.value)}
+                placeholder="banco"
+                className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+
+          <label className="block">
+            <span className="text-xs text-neutral-400">Descripción</span>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="ej: alquiler, Netflix"
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 py-2.5 text-sm font-medium transition-colors"
+          >
+            {saving ? "Guardando…" : "Añadir gasto fijo"}
+          </button>
+        </form>
       </div>
     </div>
   );

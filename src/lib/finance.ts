@@ -67,6 +67,51 @@ export function monthRange(ref = new Date()): { from: string; to: string } {
   return { from, to };
 }
 
+// Materializa los gastos fijos como transacciones para un mes ("YYYY-MM"),
+// sin duplicar. No crea meses futuros.
+export async function ensureRecurringForMonth(monthStr: string): Promise<void> {
+  const nowMonth = new Date().toISOString().slice(0, 7);
+  if (monthStr > nowMonth) return;
+
+  const { data: recs } = await supabaseAdmin
+    .from("recurring_expenses")
+    .select("*")
+    .eq("active", true);
+  if (!recs || recs.length === 0) return;
+
+  const y = Number(monthStr.slice(0, 4));
+  const m = Number(monthStr.slice(5, 7));
+  const from = `${monthStr}-01`;
+  const to = new Date(Date.UTC(y, m, 0)).toISOString().slice(0, 10);
+
+  const { data: existing } = await supabaseAdmin
+    .from("transactions")
+    .select("recurring_id")
+    .gte("occurred_at", from)
+    .lte("occurred_at", to)
+    .not("recurring_id", "is", null);
+  const done = new Set((existing ?? []).map((r) => r.recurring_id as string));
+
+  const rows = recs
+    .filter((r) => !done.has(r.id))
+    .map((r) => {
+      const day = Math.min(Math.max(1, Number(r.day_of_month) || 1), 28);
+      return {
+        amount: r.amount,
+        type: r.type,
+        category: r.category,
+        subcategory: r.subcategory,
+        description: r.description,
+        account: r.account,
+        ledger: r.ledger,
+        occurred_at: `${monthStr}-${String(day).padStart(2, "0")}`,
+        recurring_id: r.id,
+      };
+    });
+
+  if (rows.length) await supabaseAdmin.from("transactions").insert(rows);
+}
+
 export const financeTools: Tool[] = [
   {
     name: "add_transaction",

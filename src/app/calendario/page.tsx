@@ -19,6 +19,13 @@ function currentMonth() {
   return new Date().toISOString().slice(0, 7);
 }
 
+// Desplaza un "YYYY-MM" n meses.
+function shiftMonth(month: string, n: number) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
 // Clave local YYYY-MM-DD de un timestamp ISO.
 function dayKey(iso: string) {
   const d = new Date(iso);
@@ -116,12 +123,36 @@ export default function Calendario() {
             <p className="text-xs text-neutral-400">Tareas y reuniones</p>
           </div>
         </div>
-        <input
-          type="month"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
-        />
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setMonth(shiftMonth(month, -1))}
+            aria-label="Mes anterior"
+            className="w-9 h-9 rounded-lg border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 text-neutral-300"
+          >
+            ‹
+          </button>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+          />
+          <button
+            onClick={() => setMonth(shiftMonth(month, 1))}
+            aria-label="Mes siguiente"
+            className="w-9 h-9 rounded-lg border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 text-neutral-300"
+          >
+            ›
+          </button>
+          {month !== currentMonth() && (
+            <button
+              onClick={() => setMonth(currentMonth())}
+              className="ml-1 rounded-lg border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 px-3 h-9 text-xs text-neutral-300"
+            >
+              Hoy
+            </button>
+          )}
+        </div>
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">

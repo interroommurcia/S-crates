@@ -45,10 +45,10 @@ type Report = {
 const EXPENSE_CATEGORIES = [
   "alimentacion", "restaurantes", "transporte", "vivienda", "suministros",
   "salud", "ocio", "ropa", "educacion", "viajes", "regalos",
-  "suscripciones", "impuestos", "trabajo", "otros",
+  "suscripciones", "impuestos", "trabajo", "ahorro", "otros",
 ];
 const INCOME_CATEGORIES = [
-  "salario", "freelance", "ventas", "alquiler", "intereses", "regalo", "otros",
+  "salario", "freelance", "ventas", "alquiler", "intereses", "regalo", "ahorro", "otros",
 ];
 const TAX_CATEGORIES = [
   "iva", "irpf", "seguridad_social", "sociedades", "municipales", "otros",

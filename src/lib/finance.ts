@@ -16,6 +16,7 @@ export const EXPENSE_CATEGORIES = [
   "suscripciones",
   "impuestos",
   "trabajo",
+  "ahorro",
   "otros",
 ] as const;
 
@@ -26,6 +27,7 @@ export const INCOME_CATEGORIES = [
   "alquiler",
   "intereses",
   "regalo",
+  "ahorro",
   "otros",
 ] as const;
 
@@ -129,7 +131,7 @@ export const financeTools: Tool[] = [
         category: {
           type: "string",
           description:
-            "Categoria. Para gastos usa una de: alimentacion, restaurantes, transporte, vivienda, suministros, salud, ocio, ropa, educacion, viajes, regalos, suscripciones, impuestos, trabajo, otros. Para ingresos: salario, freelance, ventas, alquiler, intereses, regalo, otros.",
+            "Categoria. Para gastos usa una de: alimentacion, restaurantes, transporte, vivienda, suministros, salud, ocio, ropa, educacion, viajes, regalos, suscripciones, impuestos, trabajo, ahorro, otros. Para ingresos: salario, freelance, ventas, alquiler, intereses, regalo, ahorro, otros.",
         },
         subcategory: {
           type: "string",

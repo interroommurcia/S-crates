@@ -77,13 +77,13 @@ export const financeTools: Tool[] = [
         amount: { type: "number", description: "Importe en euros, siempre positivo." },
         type: {
           type: "string",
-          enum: ["income", "expense", "tax"],
-          description: "expense = gasto/pago, income = ingreso/cobro, tax = impuesto (IVA, IRPF, Seguridad Social, etc.).",
+          enum: ["income", "expense"],
+          description: "expense = gasto/pago, income = ingreso/cobro. Los impuestos NO se registran aqui: el usuario los introduce manualmente en la app.",
         },
         category: {
           type: "string",
           description:
-            "Categoria. Para gastos usa una de: alimentacion, restaurantes, transporte, vivienda, suministros, salud, ocio, ropa, educacion, viajes, regalos, suscripciones, impuestos, trabajo, otros. Para ingresos: salario, freelance, ventas, alquiler, intereses, regalo, otros. Para impuestos (type=tax): iva, irpf, seguridad_social, sociedades, municipales, otros.",
+            "Categoria. Para gastos usa una de: alimentacion, restaurantes, transporte, vivienda, suministros, salud, ocio, ropa, educacion, viajes, regalos, suscripciones, impuestos, trabajo, otros. Para ingresos: salario, freelance, ventas, alquiler, intereses, regalo, otros.",
         },
         subcategory: {
           type: "string",

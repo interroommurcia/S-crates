@@ -112,6 +112,12 @@ export default function Home() {
           Finanzas
         </Link>
         <Link
+          href="/calendario"
+          className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
+        >
+          Calendario
+        </Link>
+        <Link
           href="/admin"
           className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
         >

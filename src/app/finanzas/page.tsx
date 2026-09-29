@@ -3,10 +3,12 @@
 import { useEffect, useState, useCallback } from "react";
 import Link from "next/link";
 
+type TxType = "income" | "expense" | "tax";
+
 type Tx = {
   id: string;
   amount: number;
-  type: "income" | "expense";
+  type: TxType;
   category: string;
   subcategory: string | null;
   description: string | null;
@@ -14,16 +16,30 @@ type Tx = {
   occurred_at: string;
 };
 
-type SeriesPoint = { month: string; income: number; expense: number };
+type SeriesPoint = { month: string; income: number; expense: number; tax: number };
 
 type Report = {
   period: { from: string; to: string };
   income: number;
   expense: number;
+  tax: number;
   balance: number;
   transaction_count: number;
   expenses_by_category: { category: string; amount: number }[];
+  taxes_by_category: { category: string; amount: number }[];
 };
+
+const EXPENSE_CATEGORIES = [
+  "alimentacion", "restaurantes", "transporte", "vivienda", "suministros",
+  "salud", "ocio", "ropa", "educacion", "viajes", "regalos",
+  "suscripciones", "impuestos", "trabajo", "otros",
+];
+const INCOME_CATEGORIES = [
+  "salario", "freelance", "ventas", "alquiler", "intereses", "regalo", "otros",
+];
+const TAX_CATEGORIES = [
+  "iva", "irpf", "seguridad_social", "sociedades", "municipales", "otros",
+];
 
 const eur = (n: number) =>
   new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n);
@@ -41,6 +57,7 @@ export default function Finanzas() {
   const [txs, setTxs] = useState<Tx[]>([]);
   const [series, setSeries] = useState<SeriesPoint[]>([]);
   const [loading, setLoading] = useState(true);
+  const [showForm, setShowForm] = useState(false);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -99,25 +116,34 @@ export default function Finanzas() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        <div className="inline-flex rounded-xl border border-neutral-800 bg-neutral-900 p-1">
-          {(["personal", "empresa", "conjunto"] as LedgerFilter[]).map((l) => (
-            <button
-              key={l}
-              onClick={() => setLedger(l)}
-              className={`px-4 py-1.5 rounded-lg text-sm capitalize transition-colors ${
-                ledger === l
-                  ? "bg-amber-600 text-white"
-                  : "text-neutral-400 hover:text-white"
-              }`}
-            >
-              {l}
-            </button>
-          ))}
+        <div className="flex items-center justify-between gap-3">
+          <div className="inline-flex rounded-xl border border-neutral-800 bg-neutral-900 p-1">
+            {(["personal", "empresa", "conjunto"] as LedgerFilter[]).map((l) => (
+              <button
+                key={l}
+                onClick={() => setLedger(l)}
+                className={`px-4 py-1.5 rounded-lg text-sm capitalize transition-colors ${
+                  ledger === l
+                    ? "bg-amber-600 text-white"
+                    : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                {l}
+              </button>
+            ))}
+          </div>
+          <button
+            onClick={() => setShowForm(true)}
+            className="shrink-0 rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm font-medium transition-colors"
+          >
+            + Añadir
+          </button>
         </div>
 
-        <section className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card label="Ingresos" value={report?.income ?? 0} accent="text-emerald-400" />
           <Card label="Gastos" value={report?.expense ?? 0} accent="text-rose-400" />
+          <Card label="Impuestos" value={report?.tax ?? 0} accent="text-amber-400" />
           <Card
             label="Balance"
             value={report?.balance ?? 0}
@@ -158,6 +184,34 @@ export default function Finanzas() {
           )}
         </section>
 
+        {report && report.taxes_by_category.length > 0 && (
+          <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+            <h2 className="text-sm font-semibold text-neutral-300 mb-4">Impuestos por categoría</h2>
+            <div className="space-y-3">
+              {report.taxes_by_category.map((c) => (
+                <div key={c.category}>
+                  <div className="flex justify-between text-sm mb-1">
+                    <span className="uppercase text-neutral-300">{c.category.replace("_", " ")}</span>
+                    <span className="text-neutral-400">{eur(c.amount)}</span>
+                  </div>
+                  <div className="h-2 bg-neutral-800 rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-gradient-to-r from-amber-400 to-yellow-500 rounded-full"
+                      style={{
+                        width: `${
+                          report.taxes_by_category[0].amount
+                            ? (c.amount / report.taxes_by_category[0].amount) * 100
+                            : 0
+                        }%`,
+                      }}
+                    />
+                  </div>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
           <h2 className="text-sm font-semibold text-neutral-300 mb-4">
             Movimientos ({txs.length})
@@ -186,7 +240,11 @@ export default function Finanzas() {
                   </div>
                   <span
                     className={`text-sm font-medium tabular-nums ${
-                      t.type === "income" ? "text-emerald-400" : "text-rose-400"
+                      t.type === "income"
+                        ? "text-emerald-400"
+                        : t.type === "tax"
+                        ? "text-amber-400"
+                        : "text-rose-400"
                     }`}
                   >
                     {t.type === "income" ? "+" : "−"}
@@ -205,7 +263,223 @@ export default function Finanzas() {
           )}
         </section>
       </div>
+
+      {showForm && (
+        <NewTxForm
+          defaultLedger={ledger === "conjunto" ? "personal" : ledger}
+          onClose={() => setShowForm(false)}
+          onSaved={() => {
+            setShowForm(false);
+            load();
+          }}
+        />
+      )}
     </main>
+  );
+}
+
+function NewTxForm({
+  defaultLedger,
+  onClose,
+  onSaved,
+}: {
+  defaultLedger: "personal" | "empresa";
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [type, setType] = useState<TxType>("expense");
+  const [ledger, setLedger] = useState<"personal" | "empresa">(defaultLedger);
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
+  const [subcategory, setSubcategory] = useState("");
+  const [description, setDescription] = useState("");
+  const [account, setAccount] = useState("banco");
+  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const catsFor = (t: TxType) =>
+    t === "expense" ? EXPENSE_CATEGORIES : t === "tax" ? TAX_CATEGORIES : INCOME_CATEGORIES;
+  const cats = catsFor(type);
+
+  function changeType(t: TxType) {
+    setType(t);
+    setCategory(catsFor(t)[0]);
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const value = Number(amount.replace(",", "."));
+    if (!(value > 0)) {
+      setError("Introduce un importe válido.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/finance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: value,
+          type,
+          ledger,
+          category,
+          subcategory: subcategory.trim() || undefined,
+          description: description.trim() || undefined,
+          account: account.trim() || undefined,
+          date,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "No se pudo guardar.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("Error de red.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <form
+        onClick={(e) => e.stopPropagation()}
+        onSubmit={submit}
+        className="w-full sm:max-w-md bg-neutral-900 border border-neutral-800 rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto"
+      >
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Nuevo movimiento</h2>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {(["expense", "income", "tax"] as const).map((t) => {
+            const active =
+              t === "expense" ? "bg-rose-600" : t === "income" ? "bg-emerald-600" : "bg-amber-600";
+            const label = t === "expense" ? "Gasto" : t === "income" ? "Ingreso" : "Impuesto";
+            return (
+              <button
+                key={t}
+                type="button"
+                onClick={() => changeType(t)}
+                className={`py-2 rounded-lg text-sm font-medium transition-colors ${
+                  type === t ? `${active} text-white` : "bg-neutral-800 text-neutral-400 hover:text-white"
+                }`}
+              >
+                {label}
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {(["personal", "empresa"] as const).map((l) => (
+            <button
+              key={l}
+              type="button"
+              onClick={() => setLedger(l)}
+              className={`py-2 rounded-lg text-sm capitalize transition-colors ${
+                ledger === l ? "bg-amber-600 text-white" : "bg-neutral-800 text-neutral-400 hover:text-white"
+              }`}
+            >
+              {l}
+            </button>
+          ))}
+        </div>
+
+        <label className="block">
+          <span className="text-xs text-neutral-400">Importe (€)</span>
+          <input
+            type="text"
+            inputMode="decimal"
+            value={amount}
+            onChange={(e) => setAmount(e.target.value)}
+            placeholder="0,00"
+            autoFocus
+            className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+          />
+        </label>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs text-neutral-400">Categoría</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm capitalize"
+            >
+              {cats.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-neutral-400">Fecha</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs text-neutral-400">Subcategoría</span>
+            <input
+              type="text"
+              value={subcategory}
+              onChange={(e) => setSubcategory(e.target.value)}
+              placeholder="opcional"
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-neutral-400">Cuenta</span>
+            <input
+              type="text"
+              value={account}
+              onChange={(e) => setAccount(e.target.value)}
+              placeholder="banco"
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="text-xs text-neutral-400">Descripción</span>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="opcional"
+            className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+          />
+        </label>
+
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 py-2.5 text-sm font-medium transition-colors"
+        >
+          {saving ? "Guardando…" : "Guardar movimiento"}
+        </button>
+      </form>
+    </div>
   );
 }
 
@@ -216,9 +490,9 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
   const W = 620;
   const H = 180;
   const pad = { top: 10, bottom: 24, left: 8, right: 8 };
-  const max = Math.max(1, ...data.map((d) => Math.max(d.income, d.expense)));
+  const max = Math.max(1, ...data.map((d) => Math.max(d.income, d.expense, d.tax)));
   const groupW = (W - pad.left - pad.right) / data.length;
-  const barW = Math.min(18, groupW / 3);
+  const barW = Math.min(14, groupW / 4);
   const chartH = H - pad.top - pad.bottom;
   const y = (v: number) => pad.top + chartH * (1 - v / max);
 
@@ -235,7 +509,7 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
           return (
             <g key={d.month}>
               <rect
-                x={cx - barW - 1}
+                x={cx - barW * 1.5 - 2}
                 y={y(d.income)}
                 width={barW}
                 height={pad.top + chartH - y(d.income)}
@@ -243,12 +517,20 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
                 fill="#34d399"
               />
               <rect
-                x={cx + 1}
+                x={cx - barW / 2}
                 y={y(d.expense)}
                 width={barW}
                 height={pad.top + chartH - y(d.expense)}
                 rx={2}
                 fill="#fb7185"
+              />
+              <rect
+                x={cx + barW / 2 + 2}
+                y={y(d.tax)}
+                width={barW}
+                height={pad.top + chartH - y(d.tax)}
+                rx={2}
+                fill="#fbbf24"
               />
               <text x={cx} y={H - 8} textAnchor="middle" fontSize="11" fill="#a3a3a3">
                 {monthLabel(d.month)}
@@ -265,6 +547,10 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
         <span className="flex items-center gap-1.5">
           <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "#fb7185" }} />
           Gastos
+        </span>
+        <span className="flex items-center gap-1.5">
+          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "#fbbf24" }} />
+          Impuestos
         </span>
       </div>
     </div>

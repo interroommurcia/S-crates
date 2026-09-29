@@ -29,12 +29,22 @@ export const INCOME_CATEGORIES = [
   "otros",
 ] as const;
 
+export const TAX_CATEGORIES = [
+  "iva",
+  "irpf",
+  "seguridad_social",
+  "sociedades",
+  "municipales",
+  "otros",
+] as const;
+
 export type Ledger = "personal" | "empresa";
+export type TxType = "income" | "expense" | "tax";
 
 export type Transaction = {
   id: string;
   amount: number;
-  type: "income" | "expense";
+  type: TxType;
   category: string;
   subcategory: string | null;
   description: string | null;
@@ -67,13 +77,13 @@ export const financeTools: Tool[] = [
         amount: { type: "number", description: "Importe en euros, siempre positivo." },
         type: {
           type: "string",
-          enum: ["income", "expense"],
-          description: "expense = gasto/pago, income = ingreso/cobro.",
+          enum: ["income", "expense", "tax"],
+          description: "expense = gasto/pago, income = ingreso/cobro, tax = impuesto (IVA, IRPF, Seguridad Social, etc.).",
         },
         category: {
           type: "string",
           description:
-            "Categoria. Para gastos usa una de: alimentacion, restaurantes, transporte, vivienda, suministros, salud, ocio, ropa, educacion, viajes, regalos, suscripciones, impuestos, trabajo, otros. Para ingresos: salario, freelance, ventas, alquiler, intereses, regalo, otros.",
+            "Categoria. Para gastos usa una de: alimentacion, restaurantes, transporte, vivienda, suministros, salud, ocio, ropa, educacion, viajes, regalos, suscripciones, impuestos, trabajo, otros. Para ingresos: salario, freelance, ventas, alquiler, intereses, regalo, otros. Para impuestos (type=tax): iva, irpf, seguridad_social, sociedades, municipales, otros.",
         },
         subcategory: {
           type: "string",
@@ -113,7 +123,7 @@ export const financeTools: Tool[] = [
         category: { type: "string", description: "Filtrar por categoria (opcional)." },
         type: {
           type: "string",
-          enum: ["income", "expense"],
+          enum: ["income", "expense", "tax"],
           description: "Filtrar por tipo (opcional).",
         },
         ledger: {
@@ -128,7 +138,7 @@ export const financeTools: Tool[] = [
   {
     name: "spending_report",
     description:
-      "Resumen contable de un periodo: total ingresos, total gastos, balance y desglose de gastos por categoria. Usalo para preguntas tipo 'como voy este mes', 'cuanto he gastado', 'resumen de finanzas'. Sin fechas asume el mes actual.",
+      "Resumen contable de un periodo: total ingresos, total gastos, total impuestos, balance (ingresos - gastos - impuestos) y desglose de gastos por categoria. Usalo para preguntas tipo 'como voy este mes', 'cuanto he gastado', 'cuanto he pagado de impuestos', 'resumen de finanzas'. Sin fechas asume el mes actual.",
     input_schema: {
       type: "object",
       properties: {
@@ -185,7 +195,8 @@ export async function runFinanceTool(
 async function addTransaction(input: Record<string, unknown>): Promise<ToolResult> {
   const amount = Number(input.amount);
   if (!(amount > 0)) return { ok: false, error: "amount debe ser positivo" };
-  const type = input.type === "income" ? "income" : "expense";
+  const type: TxType =
+    input.type === "income" ? "income" : input.type === "tax" ? "tax" : "expense";
   const category = String(input.category ?? "otros").trim().toLowerCase() || "otros";
   const subcategory = input.subcategory
     ? String(input.subcategory).trim().toLowerCase() || null
@@ -219,7 +230,8 @@ async function queryTransactions(input: Record<string, unknown>): Promise<ToolRe
   if (typeof input.from === "string") q = q.gte("occurred_at", input.from);
   if (typeof input.to === "string") q = q.lte("occurred_at", input.to);
   if (typeof input.category === "string") q = q.eq("category", String(input.category).toLowerCase());
-  if (input.type === "income" || input.type === "expense") q = q.eq("type", input.type);
+  if (input.type === "income" || input.type === "expense" || input.type === "tax")
+    q = q.eq("type", input.type);
   if (input.ledger === "personal" || input.ledger === "empresa") q = q.eq("ledger", input.ledger);
 
   const { data, error } = await q;
@@ -258,11 +270,16 @@ export async function computeReport(from: string, to: string, ledger?: Ledger) {
 
   let income = 0;
   let expense = 0;
+  let tax = 0;
   const byCategory: Record<string, number> = {};
+  const byTaxCategory: Record<string, number> = {};
   for (const r of rows) {
     const a = Number(r.amount);
     if (r.type === "income") {
       income += a;
+    } else if (r.type === "tax") {
+      tax += a;
+      byTaxCategory[r.category] = (byTaxCategory[r.category] ?? 0) + a;
     } else {
       expense += a;
       byCategory[r.category] = (byCategory[r.category] ?? 0) + a;
@@ -272,14 +289,19 @@ export async function computeReport(from: string, to: string, ledger?: Ledger) {
   const expenses_by_category = Object.entries(byCategory)
     .map(([category, amount]) => ({ category, amount: round2(amount) }))
     .sort((a, b) => b.amount - a.amount);
+  const taxes_by_category = Object.entries(byTaxCategory)
+    .map(([category, amount]) => ({ category, amount: round2(amount) }))
+    .sort((a, b) => b.amount - a.amount);
 
   return {
     period: { from, to },
     income: round2(income),
     expense: round2(expense),
-    balance: round2(income - expense),
+    tax: round2(tax),
+    balance: round2(income - expense - tax),
     transaction_count: rows.length,
     expenses_by_category,
+    taxes_by_category,
   };
 }
 
@@ -287,7 +309,7 @@ export async function monthlySeries(
   endRef: Date,
   count = 6,
   ledger?: Ledger
-): Promise<{ month: string; income: number; expense: number }[]> {
+): Promise<{ month: string; income: number; expense: number; tax: number }[]> {
   const y = endRef.getUTCFullYear();
   const m = endRef.getUTCMonth();
   const start = new Date(Date.UTC(y, m - (count - 1), 1));
@@ -303,15 +325,16 @@ export async function monthlySeries(
   if (ledger) sq = sq.eq("ledger", ledger);
   const { data } = await sq;
 
-  const buckets: Record<string, { income: number; expense: number }> = {};
+  const buckets: Record<string, { income: number; expense: number; tax: number }> = {};
   for (let i = 0; i < count; i++) {
     const d = new Date(Date.UTC(y, m - (count - 1) + i, 1));
-    buckets[d.toISOString().slice(0, 7)] = { income: 0, expense: 0 };
+    buckets[d.toISOString().slice(0, 7)] = { income: 0, expense: 0, tax: 0 };
   }
   for (const r of data ?? []) {
     const key = String(r.occurred_at).slice(0, 7);
     if (!buckets[key]) continue;
     if (r.type === "income") buckets[key].income += Number(r.amount);
+    else if (r.type === "tax") buckets[key].tax += Number(r.amount);
     else buckets[key].expense += Number(r.amount);
   }
 
@@ -319,6 +342,7 @@ export async function monthlySeries(
     month,
     income: round2(v.income),
     expense: round2(v.expense),
+    tax: round2(v.tax),
   }));
 }
 

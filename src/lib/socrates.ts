@@ -2,6 +2,7 @@ import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "./supabase-server";
 import { retrieveRelevantFacts } from "./tools";
 import { getProtocolContext } from "./protocols";
+import type { Agent } from "./agents";
 
 const BASE_PROMPT = `Eres Socrates, el asistente personal de IA de tu usuario.
 
@@ -28,7 +29,8 @@ Contabilidad personal (tools):
 - Hay dos contabilidades: 'personal' y 'empresa'. Deduce cual por el contexto (material de oficina, clientes, facturas del negocio = empresa; compra del super, ocio = personal). Si es ambiguo y podria ser de empresa, pregunta antes de registrar. Por defecto personal.`;
 
 export async function buildSystemPrompt(
-  lastUserMessage: string
+  lastUserMessage: string,
+  agent?: Agent | null
 ): Promise<Anthropic.TextBlockParam[]> {
   const [relevant, stableFacts, protocolContext] = await Promise.all([
     retrieveRelevantFacts(lastUserMessage, 6),
@@ -44,7 +46,9 @@ export async function buildSystemPrompt(
   ]);
 
   // --- Prefijo ESTABLE (cacheable dentro de una conversacion) ---
-  const base = `${BASE_PROMPT}\n\nFecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
+  // Si hay un agente activo, su prompt reemplaza al BASE_PROMPT del asistente.
+  const promptBase = agent ? agent.prompt : BASE_PROMPT;
+  const base = `${promptBase}\n\nFecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
   const blocks: Anthropic.TextBlockParam[] = [{ type: "text", text: base }];
 
   if (protocolContext) {

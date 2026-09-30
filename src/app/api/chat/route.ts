@@ -7,6 +7,7 @@ import type {
 import { buildSystemPrompt, type Mensaje } from "@/lib/socrates";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { tools, runTool } from "@/lib/tools";
+import { detectActiveAgent } from "@/lib/agents";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
@@ -16,6 +17,7 @@ const anthropic = new Anthropic({
 });
 
 const MODEL = "claude-haiku-4-5-20251001";
+const AGENT_DEFAULT_MODEL = MODEL;
 const MAX_TOOL_ITERATIONS = 6;
 
 export async function POST(req: Request) {
@@ -26,7 +28,11 @@ export async function POST(req: Request) {
     };
 
     const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
-    const systemPrompt = await buildSystemPrompt(lastUser);
+    const agent = detectActiveAgent(messages);
+    const systemPrompt = await buildSystemPrompt(lastUser, agent);
+    const activeTools = agent && !agent.useTools ? [] : tools;
+    const activeModel = agent?.model ?? AGENT_DEFAULT_MODEL;
+    if (agent) console.log(`[agent] activo: ${agent.id} (modelo ${activeModel})`);
 
     const convo: MessageParam[] = messages.map((m) => ({
       role: m.role,
@@ -42,10 +48,10 @@ export async function POST(req: Request) {
         try {
           for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
             const s = anthropic.messages.stream({
-              model: MODEL,
+              model: activeModel,
               max_tokens: 2048,
               system: systemPrompt,
-              tools,
+              tools: activeTools,
               messages: convo,
             });
 

@@ -105,6 +105,14 @@ export default function Rentas() {
   const margin =
     current && current.income > 0 ? (current.net / current.income) * 100 : null;
 
+  const totals = useMemo(() => {
+    const income = properties.reduce((s, p) => s + p.income, 0);
+    const costs = properties.reduce((s, p) => s + p.expense + p.tax, 0);
+    const net = Math.round((income - costs) * 100) / 100;
+    const margin = income > 0 ? (net / income) * 100 : null;
+    return { income: Math.round(income * 100) / 100, costs: Math.round(costs * 100) / 100, net, margin };
+  }, [properties]);
+
   async function removeTx(id: string) {
     if (!confirm("¿Borrar este movimiento?")) return;
     await fetch("/api/finance", {
@@ -167,6 +175,33 @@ export default function Rentas() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        {properties.length > 0 && (
+          <section className="space-y-3">
+            <h2 className="text-sm font-semibold text-neutral-300">
+              Conjunto de pisos ({properties.length})
+            </h2>
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card label="Ingresos" value={totals.income} accent="text-emerald-400" />
+              <Card label="Costes" value={totals.costs} accent="text-rose-400" />
+              <Card
+                label="Neto rentas"
+                value={totals.net}
+                accent={totals.net >= 0 ? "text-emerald-400" : "text-rose-400"}
+              />
+              <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+                <p className="text-xs text-neutral-400 mb-1">Margen</p>
+                <p
+                  className={`text-2xl font-semibold tabular-nums ${
+                    (totals.margin ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {totals.margin === null ? "—" : `${totals.margin.toFixed(0)}%`}
+                </p>
+              </div>
+            </div>
+          </section>
+        )}
+
         <div className="flex flex-wrap items-center gap-2">
           {properties.map((p) => (
             <button

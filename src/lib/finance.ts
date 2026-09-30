@@ -424,6 +424,40 @@ export async function monthlySeries(
   }));
 }
 
+// Serie mensual del neto de rentas (todos los pisos): income - expense - tax.
+export async function propertyMonthlySeries(
+  endRef: Date,
+  count = 12
+): Promise<{ month: string; net: number }[]> {
+  const y = endRef.getUTCFullYear();
+  const m = endRef.getUTCMonth();
+  const start = new Date(Date.UTC(y, m - (count - 1), 1));
+  const end = new Date(Date.UTC(y, m + 1, 0));
+  const from = start.toISOString().slice(0, 10);
+  const to = end.toISOString().slice(0, 10);
+
+  const { data } = await supabaseAdmin
+    .from("transactions")
+    .select("amount, type, occurred_at")
+    .gte("occurred_at", from)
+    .lte("occurred_at", to)
+    .not("property_id", "is", null);
+
+  const buckets: Record<string, number> = {};
+  for (let i = 0; i < count; i++) {
+    const d = new Date(Date.UTC(y, m - (count - 1) + i, 1));
+    buckets[d.toISOString().slice(0, 7)] = 0;
+  }
+  for (const r of data ?? []) {
+    const key = String(r.occurred_at).slice(0, 7);
+    if (!(key in buckets)) continue;
+    const a = Number(r.amount);
+    buckets[key] += r.type === "income" ? a : -a;
+  }
+
+  return Object.entries(buckets).map(([month, net]) => ({ month, net: round2(net) }));
+}
+
 async function deleteTransaction(input: Record<string, unknown>): Promise<ToolResult> {
   const id = String(input.id ?? "");
   if (!id) return { ok: false, error: "id vacio" };

@@ -3,6 +3,7 @@ import {
   monthRange,
   ensureRecurringForMonth,
   computePropertyReports,
+  propertyMonthlySeries,
   type Transaction,
 } from "@/lib/finance";
 
@@ -18,7 +19,7 @@ export async function GET(req: Request) {
   // Materializa gastos fijos (incluidos los de pisos) del mes.
   await ensureRecurringForMonth(refDate.toISOString().slice(0, 7));
 
-  const [props, agg, txs, recs] = await Promise.all([
+  const [props, agg, txs, recs, series] = await Promise.all([
     supabaseAdmin
       .from("properties")
       .select("*")
@@ -40,6 +41,7 @@ export async function GET(req: Request) {
       .eq("active", true)
       .not("property_id", "is", null)
       .then((r) => r.data ?? []),
+    propertyMonthlySeries(refDate, 12),
   ]);
 
   const properties = props.map((p) => {
@@ -48,5 +50,5 @@ export async function GET(req: Request) {
     return { ...p, income: a.income, expense: a.expense, tax: a.tax, net };
   });
 
-  return Response.json({ properties, transactions: txs, recurring: recs });
+  return Response.json({ properties, transactions: txs, recurring: recs, series });
 }

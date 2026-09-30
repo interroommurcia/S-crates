@@ -36,6 +36,8 @@ type Property = {
   net: number;
 };
 
+type NetPoint = { month: string; net: number };
+
 const RENT_INCOME_CATEGORIES = ["alquiler", "reservas", "fianza", "otros"];
 const RENT_EXPENSE_CATEGORIES = [
   "alquiler",
@@ -65,6 +67,7 @@ export default function Rentas() {
   const [properties, setProperties] = useState<Property[]>([]);
   const [txs, setTxs] = useState<Tx[]>([]);
   const [recurring, setRecurring] = useState<Recurring[]>([]);
+  const [series, setSeries] = useState<NetPoint[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showMove, setShowMove] = useState(false);
@@ -81,6 +84,7 @@ export default function Rentas() {
       setProperties(props);
       setTxs(data.transactions ?? []);
       setRecurring(data.recurring ?? []);
+      setSeries(data.series ?? []);
       setSelected((cur) => cur && props.some((p) => p.id === cur) ? cur : props[0]?.id ?? null);
     } catch {
       /* red: conserva datos */
@@ -199,6 +203,15 @@ export default function Rentas() {
                 </p>
               </div>
             </div>
+          </section>
+        )}
+
+        {properties.length > 0 && (
+          <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+            <h2 className="text-sm font-semibold text-neutral-300 mb-4">
+              Histórico anual · neto mensual
+            </h2>
+            <NetChart data={series} />
           </section>
         )}
 
@@ -771,6 +784,93 @@ function FijosModal({
         </form>
       </div>
     </Overlay>
+  );
+}
+
+function NetChart({ data }: { data: NetPoint[] }) {
+  if (data.length === 0) {
+    return <p className="text-neutral-500 text-sm">Sin datos.</p>;
+  }
+  const GREEN = "#34d399";
+  const RED = "#fb7185";
+  const W = 680;
+  const H = 260;
+  const pad = { top: 30, bottom: 28, left: 10, right: 10 };
+  const range = Math.max(1, ...data.map((d) => Math.abs(d.net)));
+  const chartH = H - pad.top - pad.bottom;
+  const half = chartH / 2;
+  const y0 = pad.top + half;
+  const groupW = (W - pad.left - pad.right) / data.length;
+  const barW = Math.min(20, groupW * 0.5);
+  const y = (v: number) => y0 - (v / range) * half;
+
+  const pts = data.map((d, i) => ({
+    x: pad.left + groupW * i + groupW / 2,
+    y: y(d.net),
+    net: d.net,
+  }));
+
+  const monthLabel = (m: string) =>
+    new Date(`${m}-01T00:00:00Z`).toLocaleDateString("es-ES", { month: "short" });
+
+  return (
+    <div className="w-full overflow-x-auto">
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 560 }}>
+        {/* Línea cero */}
+        <line x1={pad.left} y1={y0} x2={W - pad.right} y2={y0} stroke="#3f3f46" strokeWidth={1} />
+
+        {/* Barras */}
+        {data.map((d, i) => {
+          const yv = y(d.net);
+          const pos = d.net >= 0;
+          return (
+            <rect
+              key={d.month}
+              x={pts[i].x - barW / 2}
+              y={pos ? yv : y0}
+              width={barW}
+              height={Math.max(1, Math.abs(yv - y0))}
+              rx={2}
+              fill={pos ? GREEN : RED}
+              opacity={0.3}
+            />
+          );
+        })}
+
+        {/* Línea de evolución (verde por encima de 0, roja al bajar) */}
+        {pts.map((p, i) => {
+          if (i === 0) return null;
+          const prev = pts[i - 1];
+          const color = prev.net >= 0 && p.net >= 0 ? GREEN : RED;
+          return (
+            <line key={`l${i}`} x1={prev.x} y1={prev.y} x2={p.x} y2={p.y} stroke={color} strokeWidth={2} />
+          );
+        })}
+
+        {/* Puntos y números */}
+        {pts.map((p, i) => {
+          const pos = p.net >= 0;
+          return (
+            <g key={`p${i}`}>
+              <circle cx={p.x} cy={p.y} r={3} fill={pos ? GREEN : RED} />
+              <text
+                x={p.x}
+                y={pos ? p.y - 8 : p.y + 15}
+                textAnchor="middle"
+                fontSize="10"
+                fontWeight="600"
+                fill={pos ? GREEN : RED}
+              >
+                {Math.round(p.net)}
+              </text>
+              <text x={p.x} y={H - 8} textAnchor="middle" fontSize="10" fill="#a3a3a3">
+                {monthLabel(data[i].month)}
+              </text>
+            </g>
+          );
+        })}
+      </svg>
+    </div>
   );
 }
 

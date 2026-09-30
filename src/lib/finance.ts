@@ -108,10 +108,40 @@ export async function ensureRecurringForMonth(monthStr: string): Promise<void> {
         ledger: r.ledger,
         occurred_at: `${monthStr}-${String(day).padStart(2, "0")}`,
         recurring_id: r.id,
+        property_id: r.property_id ?? null,
       };
     });
 
   if (rows.length) await supabaseAdmin.from("transactions").insert(rows);
+}
+
+// Agrega ingresos/gastos/impuestos por piso (property_id) en un rango.
+export async function computePropertyReports(
+  from: string,
+  to: string
+): Promise<Record<string, { income: number; expense: number; tax: number }>> {
+  const { data } = await supabaseAdmin
+    .from("transactions")
+    .select("amount, type, property_id")
+    .gte("occurred_at", from)
+    .lte("occurred_at", to)
+    .not("property_id", "is", null);
+
+  const map: Record<string, { income: number; expense: number; tax: number }> = {};
+  for (const r of data ?? []) {
+    const pid = r.property_id as string;
+    (map[pid] ??= { income: 0, expense: 0, tax: 0 });
+    const a = Number(r.amount);
+    if (r.type === "income") map[pid].income += a;
+    else if (r.type === "tax") map[pid].tax += a;
+    else map[pid].expense += a;
+  }
+  for (const pid of Object.keys(map)) {
+    map[pid].income = round2(map[pid].income);
+    map[pid].expense = round2(map[pid].expense);
+    map[pid].tax = round2(map[pid].tax);
+  }
+  return map;
 }
 
 export const financeTools: Tool[] = [

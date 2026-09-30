@@ -68,10 +68,12 @@ export async function POST(req: Request) {
       : new Date().toISOString().slice(0, 10);
   const receipt_path =
     typeof body.receipt_path === "string" && body.receipt_path ? body.receipt_path : null;
+  const property_id =
+    typeof body.property_id === "string" && body.property_id ? body.property_id : null;
 
   const { data, error } = await supabaseAdmin
     .from("transactions")
-    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at, receipt_path })
+    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at, receipt_path, property_id })
     .select("*")
     .single();
 

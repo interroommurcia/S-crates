@@ -28,10 +28,12 @@ export async function POST(req: Request) {
   const account = body.account ? String(body.account).trim() || "banco" : "banco";
   const ledger: Ledger = body.ledger === "empresa" ? "empresa" : "personal";
   const day_of_month = Math.min(Math.max(1, Math.round(Number(body.day_of_month) || 1)), 28);
+  const property_id =
+    typeof body.property_id === "string" && body.property_id ? body.property_id : null;
 
   const { data, error } = await supabaseAdmin
     .from("recurring_expenses")
-    .insert({ amount, type, category, subcategory, description, account, ledger, day_of_month })
+    .insert({ amount, type, category, subcategory, description, account, ledger, day_of_month, property_id })
     .select("*")
     .single();
 

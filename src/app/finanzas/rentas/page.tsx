@@ -1,0 +1,765 @@
+"use client";
+
+import { useEffect, useMemo, useState, useCallback } from "react";
+import Link from "next/link";
+
+type TxType = "income" | "expense" | "tax";
+
+type Tx = {
+  id: string;
+  amount: number;
+  type: TxType;
+  category: string;
+  subcategory: string | null;
+  description: string | null;
+  account: string;
+  property_id: string | null;
+  occurred_at: string;
+};
+
+type Recurring = {
+  id: string;
+  amount: number;
+  type: "expense" | "tax";
+  category: string;
+  description: string | null;
+  day_of_month: number;
+  property_id: string | null;
+};
+
+type Property = {
+  id: string;
+  name: string;
+  income: number;
+  expense: number;
+  tax: number;
+  net: number;
+};
+
+const RENT_INCOME_CATEGORIES = ["alquiler", "reservas", "fianza", "otros"];
+const RENT_EXPENSE_CATEGORIES = [
+  "alquiler",
+  "limpieza",
+  "suministros",
+  "mantenimiento",
+  "seguros",
+  "comisiones",
+  "impuestos",
+  "otros",
+];
+
+const eur = (n: number) =>
+  new Intl.NumberFormat("es-ES", { style: "currency", currency: "EUR" }).format(n);
+
+function currentMonth() {
+  return new Date().toISOString().slice(0, 7);
+}
+function shiftMonth(month: string, n: number) {
+  const [y, m] = month.split("-").map(Number);
+  const d = new Date(y, m - 1 + n, 1);
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}`;
+}
+
+export default function Rentas() {
+  const [month, setMonth] = useState(currentMonth);
+  const [properties, setProperties] = useState<Property[]>([]);
+  const [txs, setTxs] = useState<Tx[]>([]);
+  const [recurring, setRecurring] = useState<Recurring[]>([]);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [showMove, setShowMove] = useState(false);
+  const [showFijos, setShowFijos] = useState(false);
+  const [showAddProp, setShowAddProp] = useState(false);
+
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/finance/rentas?month=${month}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      const props: Property[] = data.properties ?? [];
+      setProperties(props);
+      setTxs(data.transactions ?? []);
+      setRecurring(data.recurring ?? []);
+      setSelected((cur) => cur && props.some((p) => p.id === cur) ? cur : props[0]?.id ?? null);
+    } catch {
+      /* red: conserva datos */
+    } finally {
+      setLoading(false);
+    }
+  }, [month]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  const current = properties.find((p) => p.id === selected) ?? null;
+  const propTxs = useMemo(
+    () => txs.filter((t) => t.property_id === selected),
+    [txs, selected]
+  );
+  const propRecurring = useMemo(
+    () => recurring.filter((r) => r.property_id === selected),
+    [recurring, selected]
+  );
+  const margin =
+    current && current.income > 0 ? (current.net / current.income) * 100 : null;
+
+  async function removeTx(id: string) {
+    if (!confirm("¿Borrar este movimiento?")) return;
+    await fetch("/api/finance", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    load();
+  }
+
+  async function removeProperty() {
+    if (!current) return;
+    if (!confirm(`¿Eliminar el piso "${current.name}"? Sus movimientos se conservan.`)) return;
+    await fetch("/api/finance/properties", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id: current.id }),
+    });
+    setSelected(null);
+    load();
+  }
+
+  return (
+    <main className="min-h-screen bg-neutral-950 text-white">
+      <header className="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
+        <div className="flex items-center gap-3">
+          <Link
+            href="/finanzas"
+            className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-lg font-bold"
+          >
+            ‹
+          </Link>
+          <div>
+            <h1 className="text-lg font-semibold">Rentas indirectas</h1>
+            <p className="text-xs text-neutral-400">Rentabilidad de pisos en explotación</p>
+          </div>
+        </div>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setMonth(shiftMonth(month, -1))}
+            aria-label="Mes anterior"
+            className="w-9 h-9 rounded-lg border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 text-neutral-300"
+          >
+            ‹
+          </button>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+          />
+          <button
+            onClick={() => setMonth(shiftMonth(month, 1))}
+            aria-label="Mes siguiente"
+            className="w-9 h-9 rounded-lg border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 text-neutral-300"
+          >
+            ›
+          </button>
+        </div>
+      </header>
+
+      <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
+        <div className="flex flex-wrap items-center gap-2">
+          {properties.map((p) => (
+            <button
+              key={p.id}
+              onClick={() => setSelected(p.id)}
+              className={`px-4 py-1.5 rounded-xl text-sm transition-colors border ${
+                selected === p.id
+                  ? "bg-amber-600 border-amber-600 text-white"
+                  : "bg-neutral-900 border-neutral-800 text-neutral-400 hover:text-white"
+              }`}
+            >
+              {p.name}
+            </button>
+          ))}
+          <button
+            onClick={() => setShowAddProp(true)}
+            className="px-3 py-1.5 rounded-xl text-sm border border-dashed border-neutral-700 text-neutral-400 hover:text-white"
+          >
+            + Piso
+          </button>
+        </div>
+
+        {!current ? (
+          <p className="text-neutral-500 text-sm">
+            {loading ? "Cargando…" : "Crea un piso para empezar."}
+          </p>
+        ) : (
+          <>
+            <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+              <Card label="Ingresos" value={current.income} accent="text-emerald-400" />
+              <Card label="Costes" value={current.expense + current.tax} accent="text-rose-400" />
+              <Card
+                label="Neto"
+                value={current.net}
+                accent={current.net >= 0 ? "text-emerald-400" : "text-rose-400"}
+              />
+              <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+                <p className="text-xs text-neutral-400 mb-1">Margen</p>
+                <p
+                  className={`text-2xl font-semibold tabular-nums ${
+                    (margin ?? 0) >= 0 ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {margin === null ? "—" : `${margin.toFixed(0)}%`}
+                </p>
+              </div>
+            </section>
+
+            <div className="flex flex-wrap gap-2">
+              <button
+                onClick={() => setShowMove(true)}
+                className="rounded-xl bg-amber-600 hover:bg-amber-500 px-4 py-2 text-sm font-medium transition-colors"
+              >
+                + Movimiento
+              </button>
+              <button
+                onClick={() => setShowFijos(true)}
+                className="rounded-xl border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 px-4 py-2 text-sm font-medium transition-colors"
+              >
+                Costes fijos ({propRecurring.length})
+              </button>
+              <button
+                onClick={removeProperty}
+                className="ml-auto rounded-xl border border-neutral-800 text-neutral-500 hover:text-rose-400 px-4 py-2 text-sm transition-colors"
+              >
+                Eliminar piso
+              </button>
+            </div>
+
+            <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+              <h2 className="text-sm font-semibold text-neutral-300 mb-4">
+                Movimientos de {current.name} ({propTxs.length})
+              </h2>
+              {propTxs.length === 0 && !loading ? (
+                <p className="text-neutral-500 text-sm">
+                  Sin movimientos este mes. Añade ingresos y costes con “+ Movimiento”.
+                </p>
+              ) : (
+                <div className="divide-y divide-neutral-800">
+                  {propTxs.map((t) => (
+                    <div key={t.id} className="flex items-center gap-3 py-3 group">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm truncate">
+                          <span className="capitalize">{t.category}</span>
+                          {t.description ? (
+                            <span className="text-neutral-400"> · {t.description}</span>
+                          ) : null}
+                        </p>
+                        <p className="text-xs text-neutral-500">
+                          {t.occurred_at} · {t.account}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-sm font-medium tabular-nums ${
+                          t.type === "income" ? "text-emerald-400" : "text-rose-400"
+                        }`}
+                      >
+                        {t.type === "income" ? "+" : "−"}
+                        {eur(t.amount)}
+                      </span>
+                      <button
+                        onClick={() => removeTx(t.id)}
+                        className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 transition text-xs"
+                        aria-label="Borrar"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </section>
+          </>
+        )}
+      </div>
+
+      {showAddProp && (
+        <AddPropertyModal
+          onClose={() => setShowAddProp(false)}
+          onSaved={(id) => {
+            setShowAddProp(false);
+            setSelected(id);
+            load();
+          }}
+        />
+      )}
+
+      {showMove && current && (
+        <MoveForm
+          propertyId={current.id}
+          propertyName={current.name}
+          month={month}
+          onClose={() => setShowMove(false)}
+          onSaved={() => {
+            setShowMove(false);
+            load();
+          }}
+        />
+      )}
+
+      {showFijos && current && (
+        <FijosModal
+          propertyId={current.id}
+          propertyName={current.name}
+          items={propRecurring}
+          onClose={() => setShowFijos(false)}
+          onChanged={load}
+        />
+      )}
+    </main>
+  );
+}
+
+function AddPropertyModal({
+  onClose,
+  onSaved,
+}: {
+  onClose: () => void;
+  onSaved: (id: string) => void;
+}) {
+  const [name, setName] = useState("");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!name.trim()) {
+      setError("Escribe un nombre.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/finance/properties", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name: name.trim() }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "No se pudo crear.");
+        return;
+      }
+      onSaved(data.property.id);
+    } catch {
+      setError("Error de red.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Nuevo piso</h2>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
+            ✕
+          </button>
+        </div>
+        <label className="block">
+          <span className="text-xs text-neutral-400">Nombre</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="ej: Guadalupe"
+            autoFocus
+            className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+          />
+        </label>
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 py-2.5 text-sm font-medium transition-colors"
+        >
+          {saving ? "Guardando…" : "Crear piso"}
+        </button>
+      </form>
+    </Overlay>
+  );
+}
+
+function MoveForm({
+  propertyId,
+  propertyName,
+  month,
+  onClose,
+  onSaved,
+}: {
+  propertyId: string;
+  propertyName: string;
+  month: string;
+  onClose: () => void;
+  onSaved: () => void;
+}) {
+  const [type, setType] = useState<"income" | "expense">("income");
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState(RENT_INCOME_CATEGORIES[0]);
+  const [description, setDescription] = useState("");
+  const [account, setAccount] = useState("banco");
+  const [date, setDate] = useState(() => {
+    const today = new Date().toISOString().slice(0, 10);
+    return today.slice(0, 7) === month ? today : `${month}-01`;
+  });
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const cats = type === "income" ? RENT_INCOME_CATEGORIES : RENT_EXPENSE_CATEGORIES;
+
+  function changeType(t: "income" | "expense") {
+    setType(t);
+    setCategory((t === "income" ? RENT_INCOME_CATEGORIES : RENT_EXPENSE_CATEGORIES)[0]);
+  }
+
+  async function submit(e: React.FormEvent) {
+    e.preventDefault();
+    const value = Number(amount.replace(",", "."));
+    if (!(value > 0)) {
+      setError("Introduce un importe válido.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/finance", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: value,
+          type,
+          ledger: "personal",
+          property_id: propertyId,
+          category,
+          description: description.trim() || undefined,
+          account: account.trim() || undefined,
+          date,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "No se pudo guardar.");
+        return;
+      }
+      onSaved();
+    } catch {
+      setError("Error de red.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <form onSubmit={submit} className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Movimiento · {propertyName}</h2>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
+            ✕
+          </button>
+        </div>
+
+        <div className="grid grid-cols-2 gap-2">
+          {(["income", "expense"] as const).map((t) => (
+            <button
+              key={t}
+              type="button"
+              onClick={() => changeType(t)}
+              className={`py-2 rounded-lg text-sm font-medium transition-colors ${
+                type === t
+                  ? t === "income"
+                    ? "bg-emerald-600 text-white"
+                    : "bg-rose-600 text-white"
+                  : "bg-neutral-800 text-neutral-400 hover:text-white"
+              }`}
+            >
+              {t === "income" ? "Ingreso" : "Coste"}
+            </button>
+          ))}
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs text-neutral-400">Importe (€)</span>
+            <input
+              type="text"
+              inputMode="decimal"
+              value={amount}
+              onChange={(e) => setAmount(e.target.value)}
+              placeholder="0,00"
+              autoFocus
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+          <label className="block">
+            <span className="text-xs text-neutral-400">Fecha</span>
+            <input
+              type="date"
+              value={date}
+              onChange={(e) => setDate(e.target.value)}
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+
+        <div className="grid grid-cols-2 gap-3">
+          <label className="block">
+            <span className="text-xs text-neutral-400">Categoría</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm capitalize"
+            >
+              {cats.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-neutral-400">Cuenta</span>
+            <input
+              type="text"
+              value={account}
+              onChange={(e) => setAccount(e.target.value)}
+              placeholder="banco"
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+        </div>
+
+        <label className="block">
+          <span className="text-xs text-neutral-400">Descripción</span>
+          <input
+            type="text"
+            value={description}
+            onChange={(e) => setDescription(e.target.value)}
+            placeholder="opcional"
+            className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+          />
+        </label>
+
+        {error && <p className="text-sm text-rose-400">{error}</p>}
+
+        <button
+          type="submit"
+          disabled={saving}
+          className="w-full rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 py-2.5 text-sm font-medium transition-colors"
+        >
+          {saving ? "Guardando…" : "Guardar"}
+        </button>
+      </form>
+    </Overlay>
+  );
+}
+
+function FijosModal({
+  propertyId,
+  propertyName,
+  items,
+  onClose,
+  onChanged,
+}: {
+  propertyId: string;
+  propertyName: string;
+  items: Recurring[];
+  onClose: () => void;
+  onChanged: () => void;
+}) {
+  const [amount, setAmount] = useState("");
+  const [category, setCategory] = useState(RENT_EXPENSE_CATEGORIES[0]);
+  const [description, setDescription] = useState("");
+  const [day, setDay] = useState("1");
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  async function add(e: React.FormEvent) {
+    e.preventDefault();
+    const value = Number(amount.replace(",", "."));
+    if (!(value > 0)) {
+      setError("Introduce un importe válido.");
+      return;
+    }
+    setSaving(true);
+    setError(null);
+    try {
+      const res = await fetch("/api/finance/recurring", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          amount: value,
+          type: "expense",
+          ledger: "personal",
+          property_id: propertyId,
+          category,
+          description: description.trim() || undefined,
+          day_of_month: Number(day) || 1,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setError(data.error ?? "No se pudo guardar.");
+        return;
+      }
+      setAmount("");
+      setDescription("");
+      onChanged();
+    } catch {
+      setError("Error de red.");
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  async function remove(id: string) {
+    if (!confirm("¿Eliminar este coste fijo? Los ya registrados se conservan.")) return;
+    await fetch("/api/finance/recurring", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    onChanged();
+  }
+
+  return (
+    <Overlay onClose={onClose}>
+      <div className="space-y-4">
+        <div className="flex items-center justify-between">
+          <h2 className="text-lg font-semibold">Costes fijos · {propertyName}</h2>
+          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
+            ✕
+          </button>
+        </div>
+        <p className="text-xs text-neutral-500">
+          Alquiler, limpieza, etc. Se registran solos cada mes en el día indicado.
+        </p>
+
+        {items.length === 0 ? (
+          <p className="text-neutral-500 text-sm">Sin costes fijos todavía.</p>
+        ) : (
+          <div className="divide-y divide-neutral-800">
+            {items.map((r) => (
+              <div key={r.id} className="flex items-center gap-3 py-2 group">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm truncate">
+                    <span className="capitalize">{r.category}</span>
+                    {r.description ? (
+                      <span className="text-neutral-400"> · {r.description}</span>
+                    ) : null}
+                  </p>
+                  <p className="text-xs text-neutral-500">día {r.day_of_month}</p>
+                </div>
+                <span className="text-sm font-medium tabular-nums text-rose-400">
+                  {eur(r.amount)}
+                </span>
+                <button
+                  onClick={() => remove(r.id)}
+                  className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 transition text-xs"
+                  aria-label="Eliminar"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <form onSubmit={add} className="space-y-3 border-t border-neutral-800 pt-4">
+          <div className="grid grid-cols-2 gap-3">
+            <label className="block">
+              <span className="text-xs text-neutral-400">Importe (€)</span>
+              <input
+                type="text"
+                inputMode="decimal"
+                value={amount}
+                onChange={(e) => setAmount(e.target.value)}
+                placeholder="0,00"
+                className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+              />
+            </label>
+            <label className="block">
+              <span className="text-xs text-neutral-400">Día del mes</span>
+              <input
+                type="number"
+                min={1}
+                max={28}
+                value={day}
+                onChange={(e) => setDay(e.target.value)}
+                className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+              />
+            </label>
+          </div>
+          <label className="block">
+            <span className="text-xs text-neutral-400">Categoría</span>
+            <select
+              value={category}
+              onChange={(e) => setCategory(e.target.value)}
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm capitalize"
+            >
+              {RENT_EXPENSE_CATEGORIES.map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="block">
+            <span className="text-xs text-neutral-400">Descripción</span>
+            <input
+              type="text"
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              placeholder="ej: alquiler propietario, limpieza"
+              className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          </label>
+          {error && <p className="text-sm text-rose-400">{error}</p>}
+          <button
+            type="submit"
+            disabled={saving}
+            className="w-full rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 py-2.5 text-sm font-medium transition-colors"
+          >
+            {saving ? "Guardando…" : "Añadir coste fijo"}
+          </button>
+        </form>
+      </div>
+    </Overlay>
+  );
+}
+
+function Overlay({ children, onClose }: { children: React.ReactNode; onClose: () => void }) {
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
+      onClick={onClose}
+    >
+      <div
+        onClick={(e) => e.stopPropagation()}
+        className="w-full sm:max-w-md bg-neutral-900 border border-neutral-800 rounded-t-2xl sm:rounded-2xl p-5 max-h-[90vh] overflow-y-auto"
+      >
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function Card({ label, value, accent }: { label: string; value: number; accent: string }) {
+  return (
+    <div className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+      <p className="text-xs text-neutral-400 mb-1">{label}</p>
+      <p className={`text-2xl font-semibold tabular-nums ${accent}`}>{eur(value)}</p>
+    </div>
+  );
+}

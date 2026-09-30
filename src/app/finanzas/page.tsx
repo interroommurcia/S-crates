@@ -121,12 +121,20 @@ export default function Finanzas() {
             <p className="text-xs text-neutral-400">Contabilidad personal</p>
           </div>
         </div>
-        <input
-          type="month"
-          value={month}
-          onChange={(e) => setMonth(e.target.value)}
-          className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
-        />
+        <div className="flex items-center gap-3">
+          <Link
+            href="/finanzas/rentas"
+            className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
+          >
+            Rentas
+          </Link>
+          <input
+            type="month"
+            value={month}
+            onChange={(e) => setMonth(e.target.value)}
+            className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+          />
+        </div>
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">

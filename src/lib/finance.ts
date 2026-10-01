@@ -53,6 +53,7 @@ export type Transaction = {
   account: string;
   ledger: Ledger;
   receipt_path: string | null;
+  pending: boolean;
   occurred_at: string;
   created_at: string;
 };
@@ -125,6 +126,7 @@ export async function computePropertyReports(
     .select("amount, type, property_id")
     .gte("occurred_at", from)
     .lte("occurred_at", to)
+    .eq("pending", false)
     .not("property_id", "is", null);
 
   const map: Record<string, { income: number; expense: number; tax: number }> = {};
@@ -339,7 +341,8 @@ export async function computeReport(from: string, to: string, ledger?: Ledger) {
     .from("transactions")
     .select("amount, type, category, occurred_at")
     .gte("occurred_at", from)
-    .lte("occurred_at", to);
+    .lte("occurred_at", to)
+    .eq("pending", false);
   if (ledger) q = q.eq("ledger", ledger);
   const { data, error } = await q;
 
@@ -399,7 +402,8 @@ export async function monthlySeries(
     .from("transactions")
     .select("amount, type, occurred_at")
     .gte("occurred_at", from)
-    .lte("occurred_at", to);
+    .lte("occurred_at", to)
+    .eq("pending", false);
   if (ledger) sq = sq.eq("ledger", ledger);
   const { data } = await sq;
 
@@ -441,6 +445,7 @@ export async function propertyMonthlySeries(
     .select("amount, type, occurred_at")
     .gte("occurred_at", from)
     .lte("occurred_at", to)
+    .eq("pending", false)
     .not("property_id", "is", null);
 
   const buckets: Record<string, number> = {};

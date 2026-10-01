@@ -14,6 +14,7 @@ type Tx = {
   description: string | null;
   account: string;
   receipt_path: string | null;
+  pending: boolean;
   occurred_at: string;
 };
 
@@ -98,6 +99,16 @@ export default function Finanzas() {
     if (!confirm("¿Borrar este movimiento?")) return;
     await fetch("/api/finance", {
       method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    load();
+  }
+
+  async function markCobrado(id: string) {
+    if (!confirm("¿Seguro que has cobrado este ingreso?")) return;
+    await fetch("/api/finance", {
+      method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ id }),
     });
@@ -257,6 +268,11 @@ export default function Finanzas() {
                   <div className="flex-1 min-w-0">
                     <p className="text-sm truncate">
                       <span className="capitalize">{t.category}</span>
+                      {t.pending ? (
+                        <span className="ml-2 rounded-full bg-amber-500/15 text-amber-400 px-2 py-0.5 text-[10px] font-medium align-middle">
+                          Próximamente
+                        </span>
+                      ) : null}
                       {t.subcategory ? (
                         <span className="text-neutral-500"> / {t.subcategory}</span>
                       ) : null}
@@ -283,7 +299,9 @@ export default function Finanzas() {
                   </div>
                   <span
                     className={`text-sm font-medium tabular-nums ${
-                      t.type === "income"
+                      t.pending
+                        ? "text-neutral-500 line-through"
+                        : t.type === "income"
                         ? "text-emerald-400"
                         : t.type === "tax"
                         ? "text-amber-400"
@@ -293,6 +311,14 @@ export default function Finanzas() {
                     {t.type === "income" ? "+" : "−"}
                     {eur(t.amount)}
                   </span>
+                  {t.pending ? (
+                    <button
+                      onClick={() => markCobrado(t.id)}
+                      className="shrink-0 rounded-lg bg-emerald-600 hover:bg-emerald-500 px-2.5 py-1 text-xs font-medium transition-colors"
+                    >
+                      Cobrado
+                    </button>
+                  ) : null}
                   <button
                     onClick={() => remove(t.id)}
                     className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 transition text-xs"
@@ -346,6 +372,7 @@ function NewTxForm({
   const [description, setDescription] = useState("");
   const [account, setAccount] = useState("banco");
   const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
+  const [pending, setPending] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -357,6 +384,7 @@ function NewTxForm({
   function changeType(t: TxType) {
     setType(t);
     setCategory(catsFor(t)[0]);
+    if (t !== "income") setPending(false);
   }
 
   async function submit(e: React.FormEvent) {
@@ -398,6 +426,7 @@ function NewTxForm({
           description: description.trim() || undefined,
           account: account.trim() || undefined,
           date,
+          pending,
           receipt_path,
         }),
       });
@@ -504,6 +533,20 @@ function NewTxForm({
             />
           </label>
         </div>
+
+        {type === "income" && (
+          <label className="flex items-center gap-2 rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={pending}
+              onChange={(e) => setPending(e.target.checked)}
+              className="accent-amber-500"
+            />
+            <span className="text-sm">
+              Próximamente <span className="text-neutral-500">(por cobrar — no cuenta hasta marcarlo cobrado)</span>
+            </span>
+          </label>
+        )}
 
         <div className="grid grid-cols-2 gap-3">
           <label className="block">

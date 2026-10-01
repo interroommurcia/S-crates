@@ -70,10 +70,28 @@ export async function POST(req: Request) {
     typeof body.receipt_path === "string" && body.receipt_path ? body.receipt_path : null;
   const property_id =
     typeof body.property_id === "string" && body.property_id ? body.property_id : null;
+  // "Proximamente": solo aplica a ingresos por cobrar.
+  const pending = type === "income" && body.pending === true;
 
   const { data, error } = await supabaseAdmin
     .from("transactions")
-    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at, receipt_path, property_id })
+    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at, receipt_path, property_id, pending })
+    .select("*")
+    .single();
+
+  if (error) return Response.json({ error: error.message }, { status: 500 });
+  return Response.json({ ok: true, transaction: data });
+}
+
+export async function PATCH(req: Request) {
+  const { id } = await req.json();
+  if (!id) return Response.json({ error: "id requerido" }, { status: 400 });
+
+  // Marca un ingreso como cobrado: pasa a contar en totales desde hoy.
+  const { data, error } = await supabaseAdmin
+    .from("transactions")
+    .update({ pending: false, occurred_at: new Date().toISOString().slice(0, 10) })
+    .eq("id", id)
     .select("*")
     .single();
 

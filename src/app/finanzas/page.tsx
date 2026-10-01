@@ -13,6 +13,7 @@ type Tx = {
   subcategory: string | null;
   description: string | null;
   account: string;
+  ledger: "personal" | "empresa";
   receipt_path: string | null;
   pending: boolean;
   occurred_at: string;
@@ -73,6 +74,8 @@ export default function Finanzas() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showRecurring, setShowRecurring] = useState(false);
+  const [editTx, setEditTx] = useState<Tx | null>(null);
+  const [txFilter, setTxFilter] = useState<"todos" | "proximamente">("todos");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -110,12 +113,14 @@ export default function Finanzas() {
     await fetch("/api/finance", {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, pending: false, date: new Date().toISOString().slice(0, 10) }),
     });
     load();
   }
 
   const maxCat = report?.expenses_by_category[0]?.amount ?? 0;
+  const pendingCount = txs.filter((t) => t.pending).length;
+  const visibleTxs = txFilter === "proximamente" ? txs.filter((t) => t.pending) : txs;
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white">
@@ -254,18 +259,38 @@ export default function Finanzas() {
         )}
 
         <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
-          <h2 className="text-sm font-semibold text-neutral-300 mb-4">
-            Movimientos ({txs.length})
-          </h2>
-          {txs.length === 0 && !loading ? (
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-neutral-300">
+              Movimientos ({visibleTxs.length})
+            </h2>
+            <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-950 p-0.5">
+              {(["todos", "proximamente"] as const).map((f) => (
+                <button
+                  key={f}
+                  onClick={() => setTxFilter(f)}
+                  className={`px-3 py-1 rounded-md text-xs transition-colors ${
+                    txFilter === f ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  {f === "todos" ? "Todos" : `Próximamente${pendingCount ? ` (${pendingCount})` : ""}`}
+                </button>
+              ))}
+            </div>
+          </div>
+          {visibleTxs.length === 0 && !loading ? (
             <p className="text-neutral-500 text-sm">
-              Sin movimientos. Registra gastos hablando con Sócrates: “gasté 40 en el super”.
+              {txFilter === "proximamente"
+                ? "Sin ingresos por cobrar."
+                : "Sin movimientos. Registra gastos hablando con Sócrates: “gasté 40 en el super”."}
             </p>
           ) : (
             <div className="divide-y divide-neutral-800">
-              {txs.map((t) => (
+              {visibleTxs.map((t) => (
                 <div key={t.id} className="flex items-center gap-3 py-3 group">
-                  <div className="flex-1 min-w-0">
+                  <div
+                    onClick={() => setEditTx(t)}
+                    className="flex-1 min-w-0 cursor-pointer"
+                  >
                     <p className="text-sm truncate">
                       <span className="capitalize">{t.category}</span>
                       {t.pending ? (
@@ -289,6 +314,7 @@ export default function Finanzas() {
                             href={`/api/finance/receipt?path=${encodeURIComponent(t.receipt_path)}`}
                             target="_blank"
                             rel="noreferrer"
+                            onClick={(e) => e.stopPropagation()}
                             className="text-amber-400 hover:underline"
                           >
                             📎 factura
@@ -344,6 +370,18 @@ export default function Finanzas() {
         />
       )}
 
+      {editTx && (
+        <NewTxForm
+          defaultLedger={editTx.ledger}
+          editTx={editTx}
+          onClose={() => setEditTx(null)}
+          onSaved={() => {
+            setEditTx(null);
+            load();
+          }}
+        />
+      )}
+
       {showRecurring && (
         <RecurringModal
           defaultLedger={ledger === "conjunto" ? "personal" : ledger}
@@ -357,22 +395,24 @@ export default function Finanzas() {
 
 function NewTxForm({
   defaultLedger,
+  editTx,
   onClose,
   onSaved,
 }: {
   defaultLedger: "personal" | "empresa";
+  editTx?: Tx | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [type, setType] = useState<TxType>("expense");
-  const [ledger, setLedger] = useState<"personal" | "empresa">(defaultLedger);
-  const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState(EXPENSE_CATEGORIES[0]);
-  const [subcategory, setSubcategory] = useState("");
-  const [description, setDescription] = useState("");
-  const [account, setAccount] = useState("banco");
-  const [date, setDate] = useState(() => new Date().toISOString().slice(0, 10));
-  const [pending, setPending] = useState(false);
+  const [type, setType] = useState<TxType>(editTx?.type ?? "expense");
+  const [ledger, setLedger] = useState<"personal" | "empresa">(editTx?.ledger ?? defaultLedger);
+  const [amount, setAmount] = useState(editTx ? String(editTx.amount).replace(".", ",") : "");
+  const [category, setCategory] = useState(editTx?.category ?? EXPENSE_CATEGORIES[0]);
+  const [subcategory, setSubcategory] = useState(editTx?.subcategory ?? "");
+  const [description, setDescription] = useState(editTx?.description ?? "");
+  const [account, setAccount] = useState(editTx?.account ?? "banco");
+  const [date, setDate] = useState(editTx?.occurred_at ?? (() => new Date().toISOString().slice(0, 10)));
+  const [pending, setPending] = useState(editTx?.pending ?? false);
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -401,6 +441,32 @@ function NewTxForm({
     setSaving(true);
     setError(null);
     try {
+      if (editTx) {
+        const res = await fetch("/api/finance", {
+          method: "PATCH",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: editTx.id,
+            amount: value,
+            type,
+            ledger,
+            category,
+            subcategory: subcategory.trim() || null,
+            description: description.trim() || null,
+            account: account.trim() || undefined,
+            date,
+            pending,
+          }),
+        });
+        const data = await res.json();
+        if (!res.ok) {
+          setError(data.error ?? "No se pudo guardar.");
+          return;
+        }
+        onSaved();
+        return;
+      }
+
       let receipt_path: string | undefined;
       if (file) {
         const fd = new FormData();
@@ -454,7 +520,7 @@ function NewTxForm({
         className="w-full sm:max-w-md bg-neutral-900 border border-neutral-800 rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto"
       >
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Nuevo movimiento</h2>
+          <h2 className="text-lg font-semibold">{editTx ? "Editar movimiento" : "Nuevo movimiento"}</h2>
           <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
             ✕
           </button>
@@ -582,15 +648,17 @@ function NewTxForm({
           />
         </label>
 
-        <label className="block">
-          <span className="text-xs text-neutral-400">Factura (PDF, opcional)</span>
-          <input
-            type="file"
-            accept="application/pdf"
-            onChange={(e) => setFile(e.target.files?.[0] ?? null)}
-            className="mt-1 w-full text-sm text-neutral-400 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-800 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-neutral-700"
-          />
-        </label>
+        {!editTx && (
+          <label className="block">
+            <span className="text-xs text-neutral-400">Factura (PDF, opcional)</span>
+            <input
+              type="file"
+              accept="application/pdf"
+              onChange={(e) => setFile(e.target.files?.[0] ?? null)}
+              className="mt-1 w-full text-sm text-neutral-400 file:mr-3 file:rounded-lg file:border-0 file:bg-neutral-800 file:px-3 file:py-1.5 file:text-sm file:text-white hover:file:bg-neutral-700"
+            />
+          </label>
+        )}
 
         {error && <p className="text-sm text-rose-400">{error}</p>}
 
@@ -599,7 +667,7 @@ function NewTxForm({
           disabled={saving}
           className="w-full rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 py-2.5 text-sm font-medium transition-colors"
         >
-          {saving ? "Guardando…" : "Guardar movimiento"}
+          {saving ? "Guardando…" : editTx ? "Guardar cambios" : "Guardar movimiento"}
         </button>
       </form>
     </div>

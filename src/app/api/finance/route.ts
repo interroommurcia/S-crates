@@ -84,13 +84,39 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
-  const { id } = await req.json();
+  const body = await req.json();
+  const id = body.id;
   if (!id) return Response.json({ error: "id requerido" }, { status: 400 });
 
-  // Marca un ingreso como cobrado: pasa a contar en totales desde hoy.
+  // Actualiza solo los campos presentes (edicion) o marca cobrado (pending:false).
+  const update: Record<string, unknown> = {};
+  if (body.amount !== undefined) {
+    const a = Number(body.amount);
+    if (!(a > 0)) return Response.json({ error: "Importe inválido" }, { status: 400 });
+    update.amount = a;
+  }
+  if (body.type === "income" || body.type === "expense" || body.type === "tax")
+    update.type = body.type;
+  if (typeof body.category === "string")
+    update.category = body.category.trim().toLowerCase() || "otros";
+  if ("subcategory" in body)
+    update.subcategory = body.subcategory
+      ? String(body.subcategory).trim().toLowerCase() || null
+      : null;
+  if ("description" in body)
+    update.description = body.description ? String(body.description).trim() || null : null;
+  if (typeof body.account === "string") update.account = body.account.trim() || "efectivo";
+  if (body.ledger === "personal" || body.ledger === "empresa") update.ledger = body.ledger;
+  if (typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date))
+    update.occurred_at = body.date;
+  if (typeof body.pending === "boolean") update.pending = body.pending;
+
+  if (Object.keys(update).length === 0)
+    return Response.json({ error: "Nada que actualizar" }, { status: 400 });
+
   const { data, error } = await supabaseAdmin
     .from("transactions")
-    .update({ pending: false, occurred_at: new Date().toISOString().slice(0, 10) })
+    .update(update)
     .eq("id", id)
     .select("*")
     .single();

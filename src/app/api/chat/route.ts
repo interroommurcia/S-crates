@@ -105,8 +105,15 @@ export async function POST(req: Request) {
 
           // Los agentes de dialogo puro (filosofo, con busqueda web) no se
           // persisten: ni transcript ni episodio. Nada de lo buscado queda.
+          // Excepcion: si el usuario se identifica como Kike, se persiste de
+          // forma transitoria para que el reflect extraiga una nota minima de
+          // su postura; el transcript se vacia despues (ver reflect.ts).
           const ephemeralAgent = !!(agent && !agent.useTools);
-          if (conversationId && assistantText && !ephemeralAgent) {
+          const identifiedAsKike = messages.some(
+            (m) => m.role === "user" && /\bsoy\s+kike\b/i.test(m.content)
+          );
+          const skipPersist = ephemeralAgent && !identifiedAsKike;
+          if (conversationId && assistantText && !skipPersist) {
             const persisted = [
               ...messages,
               { role: "assistant" as const, content: assistantText },

@@ -55,6 +55,10 @@ const reflectionTool: Tool = {
           required: ["id", "content"],
         },
       },
+      kike_position: {
+        type: "string",
+        description: "SOLO si el usuario se identifica como Kike y ha debatido ideas/conceptos (p.ej. en modo filosofico). Resume en 1-2 frases MUY breves que piensa Kike sobre los conceptos tratados, en tercera persona (ej: 'Kike piensa que el decreto X es injusto porque Y'). Captura la postura, no el detalle factual de lo buscado. Vacio o ausente si no aplica.",
+      },
     },
     required: ["episode_summary", "new_facts"],
   },
@@ -70,7 +74,8 @@ Reglas:
 - Los movimientos de dinero concretos ya se guardan aparte; no los conviertas en facts salvo que revelen un patron estable ('gasta mucho en restaurantes', 'cobra la nomina el dia 1').
 - Propon updated_facts solo si un dato existente cambio de forma clara.
 - Redacta en espanol, tercera persona, frases autocontenidas.
-- Si no hay nada nuevo relevante, devuelve new_facts vacio.`;
+- Si no hay nada nuevo relevante, devuelve new_facts vacio.
+- kike_position: rellenalo SOLO si el usuario se identifica como Kike y la conversacion es un debate de ideas/conceptos; captura su postura en 1-2 frases muy breves, no el detalle factual. En cualquier otro caso dejalo vacio.`;
 
 export async function reflectOnConversation(
   conversationId: string
@@ -134,6 +139,7 @@ export async function reflectOnConversation(
     key_points?: string[];
     new_facts: { content: string; category: string; importance: number }[];
     updated_facts?: { id: string; content: string }[];
+    kike_position?: string;
   };
 
   let inserted = 0;
@@ -166,6 +172,37 @@ export async function reflectOnConversation(
     if (!error) inserted++;
   }
 
+  // Postura de Kike en un debate de ideas (modo filosofico): nota minima,
+  // importancia baja, con dedup. Es lo unico que sobrevive de esas sesiones.
+  const kikePos = out.kike_position?.trim();
+  if (kikePos) {
+    let embedding: number[] | null = null;
+    let isDupe = false;
+    if (embeddingsEnabled()) {
+      try {
+        embedding = await embedOne(kikePos, "document");
+        const { data: dupes } = await supabaseAdmin.rpc("match_facts", {
+          query_embedding: embedding as unknown as string,
+          match_count: 1,
+          min_similarity: DEDUP_THRESHOLD,
+        });
+        if (Array.isArray(dupes) && dupes.length > 0) isDupe = true;
+      } catch (e) {
+        console.warn("dedup kike_position fallo:", e);
+      }
+    }
+    if (!isDupe) {
+      const { error } = await supabaseAdmin.from("facts").insert({
+        content: kikePos,
+        category: "pensamiento",
+        importance: 2,
+        source: "reflection",
+        embedding: embedding as unknown as string | null,
+      });
+      if (!error) inserted++;
+    }
+  }
+
   let updated = 0;
   for (const u of out.updated_facts ?? []) {
     if (!u.id || !u.content?.trim()) continue;
@@ -182,6 +219,14 @@ export async function reflectOnConversation(
     }
     const { error } = await supabaseAdmin.from("facts").update(patch).eq("id", u.id);
     if (!error) updated++;
+  }
+
+  // Debate filosofico de Kike: lo unico que se guarda es su postura (ya
+  // insertada arriba). No se crea episodio (evita retener detalle de lo
+  // buscado) y se borra la fila entera de la conversacion.
+  if (kikePos) {
+    await supabaseAdmin.from("conversations").delete().eq("id", conversationId);
+    return { skipped: false, new_facts: inserted, updated };
   }
 
   if (out.episode_summary?.trim()) {

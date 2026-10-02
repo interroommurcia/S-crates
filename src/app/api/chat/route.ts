@@ -56,7 +56,7 @@ export async function POST(req: Request) {
           for (let iter = 0; iter < MAX_TOOL_ITERATIONS; iter++) {
             const s = anthropic.messages.stream({
               model: activeModel,
-              max_tokens: 2048,
+              max_tokens: 8192,
               system: systemPrompt,
               tools: activeTools,
               messages: convo,

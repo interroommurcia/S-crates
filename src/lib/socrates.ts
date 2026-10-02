@@ -32,6 +32,13 @@ export async function buildSystemPrompt(
   lastUserMessage: string,
   agent?: Agent | null
 ): Promise<Anthropic.TextBlockParam[]> {
+  // Agente de dialogo puro (sin tools): prompt minimo, sin memoria ni
+  // protocolos ni embeddings. Mas economico y mantiene al agente aislado.
+  if (agent && !agent.useTools) {
+    const base = `${agent.prompt}\n\nFecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
+    return [{ type: "text", text: base, cache_control: { type: "ephemeral" } }];
+  }
+
   const [relevant, stableFacts, protocolContext] = await Promise.all([
     retrieveRelevantFacts(lastUserMessage, 6),
     supabaseAdmin

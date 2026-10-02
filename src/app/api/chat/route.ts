@@ -31,7 +31,10 @@ export async function POST(req: Request) {
     const agent = detectActiveAgent(messages);
     const systemPrompt = await buildSystemPrompt(lastUser, agent);
     const activeTools: Anthropic.Messages.ToolUnion[] = agent?.webSearch
-      ? [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }]
+      ? [
+          { type: "web_search_20260209", name: "web_search", max_uses: 5 },
+          { type: "web_fetch_20260209", name: "web_fetch", max_uses: 5 },
+        ]
       : agent && !agent.useTools
         ? []
         : tools;
@@ -76,6 +79,9 @@ export async function POST(req: Request) {
             );
             convo.push({ role: "assistant", content: final.content });
 
+            // Las server-tools (web_search/web_fetch) pueden pausar el turno
+            // mientras se ejecutan en el servidor: reanudamos reenviando la conversacion.
+            if (final.stop_reason === "pause_turn") continue;
             if (final.stop_reason !== "tool_use") break;
 
             const toolUses = final.content.filter(

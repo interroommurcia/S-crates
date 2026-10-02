@@ -103,7 +103,10 @@ export async function POST(req: Request) {
             convo.push({ role: "user", content: toolResults });
           }
 
-          if (conversationId && assistantText) {
+          // Los agentes de dialogo puro (filosofo, con busqueda web) no se
+          // persisten: ni transcript ni episodio. Nada de lo buscado queda.
+          const ephemeralAgent = !!(agent && !agent.useTools);
+          if (conversationId && assistantText && !ephemeralAgent) {
             const persisted = [
               ...messages,
               { role: "assistant" as const, content: assistantText },

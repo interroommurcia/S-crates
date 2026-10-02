@@ -15,6 +15,8 @@ export type Agent = {
   exitTriggers: RegExp[];
   /** si false, el agente no recibe tools (dialogo puro, sin contabilidad/memoria activa) */
   useTools: boolean;
+  /** si true, recibe solo la server-tool de busqueda web (para anclar hechos, no sustituir el dialogo) */
+  webSearch?: boolean;
   /** categorias de memoria que puede ver (vacio = ninguna especifica) */
   categorias: string[];
   /** id de voz para TTS, futura fase */

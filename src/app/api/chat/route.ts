@@ -30,7 +30,11 @@ export async function POST(req: Request) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
     const agent = detectActiveAgent(messages);
     const systemPrompt = await buildSystemPrompt(lastUser, agent);
-    const activeTools = agent && !agent.useTools ? [] : tools;
+    const activeTools: Anthropic.Messages.ToolUnion[] = agent?.webSearch
+      ? [{ type: "web_search_20250305", name: "web_search", max_uses: 3 }]
+      : agent && !agent.useTools
+        ? []
+        : tools;
     const activeModel = agent?.model ?? AGENT_DEFAULT_MODEL;
     if (agent) console.log(`[agent] activo: ${agent.id} (modelo ${activeModel})`);
 

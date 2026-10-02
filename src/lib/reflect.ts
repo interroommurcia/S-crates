@@ -205,9 +205,13 @@ export async function reflectOnConversation(
     if (epError) console.error("episode upsert fallo:", epError.message);
   }
 
+  // Ya consolidamos la conversacion en un episodio (resumen + puntos clave).
+  // Vaciamos el transcript completo para ahorrar espacio: el episodio es el
+  // registro duradero. Si la sesion continua, el cliente reenvia el hilo y se
+  // vuelve a reflejar el delta.
   await supabaseAdmin
     .from("conversations")
-    .update({ last_reflected_count: messages.length })
+    .update({ messages: [], last_reflected_count: messages.length })
     .eq("id", conversationId);
 
   return { skipped: false, new_facts: inserted, updated };

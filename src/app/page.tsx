@@ -160,7 +160,9 @@ export default function Home() {
             >
               {m.content}
               {m.role === "assistant" && !m.content && (
-                <span className="inline-block w-2 h-4 bg-amber-500 animate-pulse rounded-sm" />
+                <span className="text-xs text-neutral-400 italic animate-pulse">
+                  Mmmmmm..
+                </span>
               )}
             </div>
           </div>

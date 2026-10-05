@@ -16,6 +16,7 @@ type Tx = {
   ledger: "personal" | "empresa";
   receipt_path: string | null;
   pending: boolean;
+  recurring_id: string | null;
   occurred_at: string;
 };
 
@@ -85,7 +86,7 @@ export default function Finanzas() {
   const [showForm, setShowForm] = useState(false);
   const [showRecurring, setShowRecurring] = useState(false);
   const [editTx, setEditTx] = useState<Tx | null>(null);
-  const [txFilter, setTxFilter] = useState<"todos" | "proximamente">("todos");
+  const [txFilter, setTxFilter] = useState<"todos" | "proximamente" | "fijos">("todos");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -130,7 +131,13 @@ export default function Finanzas() {
 
   const maxCat = report?.expenses_by_category[0]?.amount ?? 0;
   const pendingCount = txs.filter((t) => t.pending).length;
-  const visibleTxs = txFilter === "proximamente" ? txs.filter((t) => t.pending) : txs;
+  const fijosCount = txs.filter((t) => t.recurring_id).length;
+  const visibleTxs =
+    txFilter === "proximamente"
+      ? txs.filter((t) => t.pending)
+      : txFilter === "fijos"
+      ? txs.filter((t) => t.recurring_id)
+      : txs;
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white">
@@ -291,7 +298,7 @@ export default function Finanzas() {
               Movimientos ({visibleTxs.length})
             </h2>
             <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-950 p-0.5">
-              {(["todos", "proximamente"] as const).map((f) => (
+              {(["todos", "proximamente", "fijos"] as const).map((f) => (
                 <button
                   key={f}
                   onClick={() => setTxFilter(f)}
@@ -299,7 +306,11 @@ export default function Finanzas() {
                     txFilter === f ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
                   }`}
                 >
-                  {f === "todos" ? "Todos" : `Próximamente${pendingCount ? ` (${pendingCount})` : ""}`}
+                  {f === "todos"
+                    ? "Todos"
+                    : f === "proximamente"
+                    ? `Próximamente${pendingCount ? ` (${pendingCount})` : ""}`
+                    : `Fijos${fijosCount ? ` (${fijosCount})` : ""}`}
                 </button>
               ))}
             </div>
@@ -308,6 +319,8 @@ export default function Finanzas() {
             <p className="text-neutral-500 text-sm">
               {txFilter === "proximamente"
                 ? "Sin ingresos por cobrar."
+                : txFilter === "fijos"
+                ? "Sin gastos fijos este mes."
                 : "Sin movimientos. Registra gastos hablando con Sócrates: “gasté 40 en el super”."}
             </p>
           ) : (
@@ -323,6 +336,11 @@ export default function Finanzas() {
                       {t.pending ? (
                         <span className="ml-2 rounded-full bg-amber-500/15 text-amber-400 px-2 py-0.5 text-[10px] font-medium align-middle">
                           Próximamente
+                        </span>
+                      ) : null}
+                      {t.recurring_id ? (
+                        <span className="ml-2 rounded-full bg-sky-500/15 text-sky-400 px-2 py-0.5 text-[10px] font-medium align-middle">
+                          Fijo
                         </span>
                       ) : null}
                       {t.subcategory ? (
@@ -702,16 +720,23 @@ function NewTxForm({
 }
 
 type SourceColors = Record<keyof SourceBucket, string>;
-const INCOME_SHADES: SourceColors = { personal: "#059669", empresa: "#34d399", rentas: "#a7f3d0" };
-const EXPENSE_SHADES: SourceColors = { personal: "#be123c", empresa: "#fb7185", rentas: "#fecdd3" };
+const INCOME_SHADES: SourceColors = { personal: "#065f46", empresa: "#34d399", rentas: "#bbf7d0" };
+const EXPENSE_SHADES: SourceColors = { personal: "#9f1239", empresa: "#fb7185", rentas: "#fecdd3" };
 const SOURCE_ORDER: (keyof SourceBucket)[] = ["personal", "empresa", "rentas"];
+const SOURCE_LABEL: Record<keyof SourceBucket, string> = {
+  personal: "Personal",
+  empresa: "Empresa",
+  rentas: "Rentas",
+};
 const INCOME_BASE = "#34d399";
 const EXPENSE_BASE = "#fb7185";
 const TAX_BASE = "#fbbf24";
 const NET_COLOR = "#e5e5e5";
+const SEG_GAP = 1.5; // separador entre tramos apilados
 
 function MonthlyChart({ data }: { data: SeriesPoint[] }) {
   const [visible, setVisible] = useState({ income: true, expense: true, tax: true, net: true });
+  const [hover, setHover] = useState<number | null>(null);
   const toggle = (k: keyof typeof visible) => setVisible((v) => ({ ...v, [k]: !v[k] }));
 
   if (data.length === 0) {
@@ -739,7 +764,7 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
   const baseY = y(0);
 
   const groupW = chartW / data.length;
-  const barW = Math.min(14, groupW / 5);
+  const barW = Math.min(18, groupW / 4.2);
   const cx = (i: number) => pad.left + groupW * i + groupW / 2;
 
   const ticks = Array.from({ length: 5 }, (_, i) => min + (span * i) / 4);
@@ -757,8 +782,7 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
     yTop: number,
     h: number,
     color: string,
-    projected: boolean,
-    title: string
+    projected: boolean
   ) => (
     <rect
       key={key}
@@ -772,13 +796,11 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
       stroke={projected ? color : "none"}
       strokeWidth={projected ? 0.75 : 0}
       strokeDasharray={projected ? "2 1.5" : undefined}
-    >
-      <title>{title}</title>
-    </rect>
+    />
   );
 
-  const singleBar = (xc: number, v: number, color: string, projected: boolean, label: string) =>
-    rect(label, xc, y(v), baseY - y(v), color, projected, `${label}: ${eur(v)}${projected ? " (proy.)" : ""}`);
+  const singleBar = (xc: number, v: number, color: string, projected: boolean, key: string) =>
+    v > 0 ? rect(key, xc, y(v), baseY - y(v), color, projected) : null;
 
   const stackBar = (
     xc: number,
@@ -792,17 +814,9 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
       const v = buckets[k];
       if (!(v > 0)) return null;
       const yTop = y(acc + v);
-      const h = y(acc) - y(acc + v);
+      const h = Math.max(0, y(acc) - y(acc + v) - SEG_GAP);
       acc += v;
-      return rect(
-        `${kind}-${k}`,
-        xc,
-        yTop,
-        h,
-        palette[k],
-        projected,
-        `${kind} · ${k}: ${eur(v)}${projected ? " (proy.)" : ""}`
-      );
+      return rect(`${kind}-${k}`, xc, yTop, h, palette[k], projected);
     });
   };
 
@@ -812,9 +826,13 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
 
   const legendBtn = (k: keyof typeof visible, label: string, swatch: React.ReactNode) => (
     <button
+      type="button"
       onClick={() => toggle(k)}
-      className={`flex items-center gap-1.5 transition-opacity ${
-        visible[k] ? "opacity-100" : "opacity-35"
+      title="Mostrar / ocultar"
+      className={`flex items-center gap-1.5 cursor-pointer rounded-md px-2 py-0.5 border transition-colors ${
+        visible[k]
+          ? "border-neutral-700 text-neutral-200 hover:bg-neutral-800"
+          : "border-neutral-800 text-neutral-500 hover:text-neutral-300"
       }`}
     >
       {swatch}
@@ -822,9 +840,18 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
     </button>
   );
 
+  const hd = hover != null ? data[hover] : null;
+  const tipLeftPct = hover != null ? (cx(hover) / W) * 100 : 0;
+  const tipShift = hover == null ? "-50%" : hover >= data.length - 2 ? "-88%" : hover <= 1 ? "-12%" : "-50%";
+
   return (
-    <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 480 }}>
+    <div className="relative w-full overflow-x-auto">
+      <svg
+        viewBox={`0 0 ${W} ${H}`}
+        className="w-full"
+        style={{ minWidth: 480 }}
+        onMouseLeave={() => setHover(null)}
+      >
         {ticks.map((t, i) => (
           <g key={i}>
             <line x1={pad.left} y1={y(t)} x2={W - pad.right} y2={y(t)} stroke="#262626" strokeWidth={1} />
@@ -837,6 +864,17 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
           <line x1={pad.left} y1={baseY} x2={W - pad.right} y2={baseY} stroke="#525252" strokeWidth={1} />
         )}
 
+        {hover != null && (
+          <rect
+            x={pad.left + groupW * hover}
+            y={pad.top}
+            width={groupW}
+            height={chartH}
+            fill="#ffffff"
+            opacity={0.04}
+          />
+        )}
+
         {data.map((d, i) => {
           const c = cx(i);
           const proj = !!d.projected;
@@ -845,12 +883,12 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
               {visible.income &&
                 (isConjunto && d.incomeBy
                   ? stackBar(c - barW * 1.5 - 2, d.incomeBy, INCOME_SHADES, proj, "Ingresos")
-                  : singleBar(c - barW * 1.5 - 2, d.income, INCOME_BASE, proj, "Ingresos"))}
+                  : singleBar(c - barW * 1.5 - 2, d.income, INCOME_BASE, proj, `inc-${i}`))}
               {visible.expense &&
                 (isConjunto && d.expenseBy
                   ? stackBar(c - barW / 2, d.expenseBy, EXPENSE_SHADES, proj, "Gastos")
-                  : singleBar(c - barW / 2, d.expense, EXPENSE_BASE, proj, "Gastos"))}
-              {visible.tax && singleBar(c + barW / 2 + 2, d.tax, TAX_BASE, proj, "Impuestos")}
+                  : singleBar(c - barW / 2, d.expense, EXPENSE_BASE, proj, `exp-${i}`))}
+              {visible.tax && singleBar(c + barW / 2 + 2, d.tax, TAX_BASE, proj, `tax-${i}`)}
               <text x={c} y={H - 16} textAnchor="middle" fontSize="10" fill="#a3a3a3">
                 {monthLabel(d.month)}
               </text>
@@ -881,9 +919,43 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
             ))}
           </>
         )}
+
+        {/* Zonas de hover por mes (encima de todo, transparentes) */}
+        {data.map((d, i) => (
+          <rect
+            key={`hit-${d.month}`}
+            x={pad.left + groupW * i}
+            y={pad.top}
+            width={groupW}
+            height={chartH}
+            fill="transparent"
+            onMouseEnter={() => setHover(i)}
+            onMouseMove={() => setHover(i)}
+          />
+        ))}
       </svg>
 
-      <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center mt-2 text-xs text-neutral-400">
+      {hd && (
+        <div
+          className="pointer-events-none absolute top-1 z-10 rounded-lg border border-neutral-700 bg-neutral-950/95 px-3 py-2 text-[11px] shadow-xl"
+          style={{ left: `${tipLeftPct}%`, transform: `translateX(${tipShift})`, minWidth: 140 }}
+        >
+          <p className="mb-1 font-medium text-neutral-200 capitalize">
+            {monthLabel(hd.month)}
+            {hd.projected ? <span className="text-neutral-500"> · proyección</span> : null}
+          </p>
+          <TipRow color={INCOME_BASE} label="Ingresos" value={hd.income} />
+          {isConjunto && hd.incomeBy && <TipBreakdown by={hd.incomeBy} palette={INCOME_SHADES} />}
+          <TipRow color={EXPENSE_BASE} label="Gastos" value={hd.expense} />
+          {isConjunto && hd.expenseBy && <TipBreakdown by={hd.expenseBy} palette={EXPENSE_SHADES} />}
+          <TipRow color={TAX_BASE} label="Impuestos" value={hd.tax} />
+          <div className="mt-1 border-t border-neutral-800 pt-1">
+            <TipRow color={NET_COLOR} label="Neto" value={hd.income - hd.expense - hd.tax} bold />
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-wrap gap-2 justify-center mt-3 text-xs text-neutral-400">
         {legendBtn(
           "income",
           "Ingresos",
@@ -899,12 +971,8 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
           "Impuestos",
           <span className="w-3 h-3 rounded-sm inline-block" style={{ background: TAX_BASE }} />
         )}
-        {legendBtn(
-          "net",
-          "Neto",
-          <span className="inline-block w-4 border-t-2 border-neutral-200" />
-        )}
-        <span className="flex items-center gap-1.5">
+        {legendBtn("net", "Neto", <span className="inline-block w-4 border-t-2 border-neutral-200" />)}
+        <span className="flex items-center gap-1.5 px-2 py-0.5">
           <span
             className="w-3 h-3 rounded-sm inline-block border border-neutral-600 opacity-40"
             style={{ background: "#9ca3af" }}
@@ -914,17 +982,63 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
       </div>
 
       {isConjunto && (
-        <div className="flex flex-wrap gap-x-4 gap-y-1 justify-center mt-1.5 text-[11px] text-neutral-500">
-          <span className="text-neutral-600">Origen:</span>
-          {SOURCE_ORDER.map((k) => (
-            <span key={k} className="flex items-center gap-1 capitalize">
-              <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: INCOME_SHADES[k] }} />
-              <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: EXPENSE_SHADES[k] }} />
-              {k}
+        <p className="mt-2 text-center text-[11px] text-neutral-500">
+          Cada barra se divide por origen (de oscuro a claro):{" "}
+          {SOURCE_ORDER.map((k, i) => (
+            <span key={k} className="whitespace-nowrap">
+              <span
+                className="w-2.5 h-2.5 rounded-sm inline-block align-middle mr-1"
+                style={{ background: INCOME_SHADES[k] }}
+              />
+              {SOURCE_LABEL[k]}
+              {i < SOURCE_ORDER.length - 1 ? " · " : ""}
             </span>
           ))}
-        </div>
+          <span className="text-neutral-600"> (mismos tonos en gastos, en rojo)</span>
+        </p>
       )}
+    </div>
+  );
+}
+
+function TipRow({
+  color,
+  label,
+  value,
+  bold,
+}: {
+  color: string;
+  label: string;
+  value: number;
+  bold?: boolean;
+}) {
+  return (
+    <div className="flex items-center justify-between gap-4">
+      <span className="flex items-center gap-1.5 text-neutral-400">
+        <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: color }} />
+        {label}
+      </span>
+      <span className={`tabular-nums ${bold ? "font-semibold text-neutral-100" : "text-neutral-300"}`}>
+        {eur(value)}
+      </span>
+    </div>
+  );
+}
+
+function TipBreakdown({ by, palette }: { by: SourceBucket; palette: SourceColors }) {
+  const rows = SOURCE_ORDER.filter((k) => by[k] > 0);
+  if (rows.length === 0) return null;
+  return (
+    <div className="mb-0.5 ml-4 space-y-0.5">
+      {rows.map((k) => (
+        <div key={k} className="flex items-center justify-between gap-4 text-neutral-500">
+          <span className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-sm inline-block" style={{ background: palette[k] }} />
+            {SOURCE_LABEL[k]}
+          </span>
+          <span className="tabular-nums">{eur(by[k])}</span>
+        </div>
+      ))}
     </div>
   );
 }

@@ -125,6 +125,26 @@ export async function PATCH(req: Request) {
     .single();
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
+
+  // Si el movimiento viene de un gasto fijo, propaga la edicion a la plantilla.
+  if (data?.recurring_id) {
+    const rUpd: Record<string, unknown> = {};
+    if (update.amount !== undefined) rUpd.amount = update.amount;
+    if (update.type === "expense" || update.type === "tax") rUpd.type = update.type;
+    if (update.category !== undefined) rUpd.category = update.category;
+    if ("subcategory" in update) rUpd.subcategory = update.subcategory;
+    if ("description" in update) rUpd.description = update.description;
+    if (update.account !== undefined) rUpd.account = update.account;
+    if (update.ledger !== undefined) rUpd.ledger = update.ledger;
+    if (typeof update.occurred_at === "string") {
+      const day = Number(update.occurred_at.slice(8, 10));
+      if (day >= 1) rUpd.day_of_month = Math.min(day, 28);
+    }
+    if (Object.keys(rUpd).length > 0) {
+      await supabaseAdmin.from("recurring_expenses").update(rUpd).eq("id", data.recurring_id);
+    }
+  }
+
   return Response.json({ ok: true, transaction: data });
 }
 

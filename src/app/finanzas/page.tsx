@@ -186,6 +186,8 @@ export default function Finanzas() {
           </div>
         </div>
 
+        <NotesPostit />
+
         <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
           <Card label="Ingresos" value={report?.income ?? 0} accent="text-emerald-400" />
           <Card label="Gastos" value={report?.expense ?? 0} accent="text-rose-400" />
@@ -1005,6 +1007,121 @@ function RecurringModal({
         </form>
       </div>
     </div>
+  );
+}
+
+type Note = { id: string; content: string; color: string; created_at: string };
+
+const NOTE_COLORS: Record<string, string> = {
+  amber: "bg-amber-200 text-amber-950 shadow-amber-900/30",
+  rose: "bg-rose-200 text-rose-950 shadow-rose-900/30",
+  sky: "bg-sky-200 text-sky-950 shadow-sky-900/30",
+  emerald: "bg-emerald-200 text-emerald-950 shadow-emerald-900/30",
+};
+const COLOR_CYCLE = ["amber", "rose", "sky", "emerald"];
+
+function NotesPostit() {
+  const [notes, setNotes] = useState<Note[]>([]);
+  const [open, setOpen] = useState(true);
+
+  const load = useCallback(async () => {
+    try {
+      const res = await fetch("/api/notes");
+      if (res.ok) setNotes(await res.json());
+    } catch {
+      /* red: conserva notas previas */
+    }
+  }, []);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function add() {
+    const color = COLOR_CYCLE[notes.length % COLOR_CYCLE.length];
+    const res = await fetch("/api/notes", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ content: "", color }),
+    });
+    if (res.ok) {
+      const created = await res.json();
+      setNotes((prev) => [created, ...prev]);
+    }
+  }
+
+  async function save(id: string, content: string) {
+    setNotes((prev) => prev.map((n) => (n.id === id ? { ...n, content } : n)));
+    await fetch("/api/notes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, content }),
+    }).catch(() => {});
+  }
+
+  async function remove(id: string) {
+    setNotes((prev) => prev.filter((n) => n.id !== id));
+    await fetch("/api/notes", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    }).catch(() => {});
+  }
+
+  return (
+    <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-sm font-semibold text-neutral-300">
+          Notas <span className="text-neutral-500 font-normal">· se borran a los 100 días</span>
+        </h2>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setOpen((o) => !o)}
+            className="text-xs text-neutral-400 hover:text-white transition-colors"
+          >
+            {open ? "Ocultar" : "Mostrar"}
+          </button>
+          <button
+            onClick={add}
+            className="rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-xs font-medium transition-colors"
+          >
+            + Nota
+          </button>
+        </div>
+      </div>
+
+      {open &&
+        (notes.length === 0 ? (
+          <p className="text-neutral-500 text-sm">Sin notas. Añade un post-it.</p>
+        ) : (
+          <div className="flex flex-wrap gap-4">
+            {notes.map((n, i) => (
+              <div
+                key={n.id}
+                className={`group relative w-44 h-44 rounded-sm p-3 shadow-lg ${
+                  NOTE_COLORS[n.color] ?? NOTE_COLORS.amber
+                } ${i % 2 ? "rotate-1" : "-rotate-1"}`}
+              >
+                <button
+                  onClick={() => remove(n.id)}
+                  className="absolute top-1 right-1.5 text-black/30 hover:text-black/70 opacity-0 group-hover:opacity-100 transition text-sm"
+                  aria-label="Borrar nota"
+                >
+                  ✕
+                </button>
+                <textarea
+                  defaultValue={n.content}
+                  onBlur={(e) => {
+                    if (e.target.value !== n.content) save(n.id, e.target.value);
+                  }}
+                  placeholder="Escribe…"
+                  className="w-full h-full resize-none bg-transparent text-sm leading-snug placeholder-black/30 focus:outline-none"
+                />
+              </div>
+            ))}
+          </div>
+        ))}
+    </section>
   );
 }
 

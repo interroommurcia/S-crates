@@ -386,46 +386,152 @@ export async function computeReport(from: string, to: string, ledger?: Ledger) {
   };
 }
 
+export type SourceBucket = { personal: number; empresa: number; rentas: number };
+export type SeriesPoint = {
+  month: string;
+  income: number;
+  expense: number;
+  tax: number;
+  projected: boolean;
+  // Solo en vista "conjunto" (sin ledger): desglose por origen.
+  incomeBy?: SourceBucket;
+  expenseBy?: SourceBucket;
+};
+
+function emptyBucket(): SourceBucket {
+  return { personal: 0, empresa: 0, rentas: 0 };
+}
+
+// Origen de una fila: rentas si tiene piso, si no por su ledger.
+function sourceOf(ledger: unknown, propertyId: unknown): keyof SourceBucket {
+  if (propertyId) return "rentas";
+  return ledger === "empresa" ? "empresa" : "personal";
+}
+
+function roundBucket(b: SourceBucket): SourceBucket {
+  return { personal: round2(b.personal), empresa: round2(b.empresa), rentas: round2(b.rentas) };
+}
+
 export async function monthlySeries(
   endRef: Date,
   count = 6,
-  ledger?: Ledger
-): Promise<{ month: string; income: number; expense: number; tax: number }[]> {
+  ledger?: Ledger,
+  projectNext = false
+): Promise<SeriesPoint[]> {
   const y = endRef.getUTCFullYear();
   const m = endRef.getUTCMonth();
   const start = new Date(Date.UTC(y, m - (count - 1), 1));
   const end = new Date(Date.UTC(y, m + 1, 0));
   const from = start.toISOString().slice(0, 10);
   const to = end.toISOString().slice(0, 10);
+  const breakdown = !ledger; // "conjunto" desglosa por origen
 
   let sq = supabaseAdmin
     .from("transactions")
-    .select("amount, type, occurred_at")
+    .select("amount, type, occurred_at, ledger, property_id")
     .gte("occurred_at", from)
     .lte("occurred_at", to)
     .eq("pending", false);
   if (ledger) sq = sq.eq("ledger", ledger);
   const { data } = await sq;
 
-  const buckets: Record<string, { income: number; expense: number; tax: number }> = {};
+  type Agg = {
+    income: number;
+    expense: number;
+    tax: number;
+    incomeBy: SourceBucket;
+    expenseBy: SourceBucket;
+  };
+  const buckets: Record<string, Agg> = {};
   for (let i = 0; i < count; i++) {
     const d = new Date(Date.UTC(y, m - (count - 1) + i, 1));
-    buckets[d.toISOString().slice(0, 7)] = { income: 0, expense: 0, tax: 0 };
+    buckets[d.toISOString().slice(0, 7)] = {
+      income: 0,
+      expense: 0,
+      tax: 0,
+      incomeBy: emptyBucket(),
+      expenseBy: emptyBucket(),
+    };
   }
   for (const r of data ?? []) {
     const key = String(r.occurred_at).slice(0, 7);
     if (!buckets[key]) continue;
-    if (r.type === "income") buckets[key].income += Number(r.amount);
-    else if (r.type === "tax") buckets[key].tax += Number(r.amount);
-    else buckets[key].expense += Number(r.amount);
+    const a = Number(r.amount);
+    const src = sourceOf(r.ledger, r.property_id);
+    if (r.type === "income") {
+      buckets[key].income += a;
+      buckets[key].incomeBy[src] += a;
+    } else if (r.type === "tax") {
+      buckets[key].tax += a;
+    } else {
+      buckets[key].expense += a;
+      buckets[key].expenseBy[src] += a;
+    }
   }
 
-  return Object.entries(buckets).map(([month, v]) => ({
+  const result: SeriesPoint[] = Object.entries(buckets).map(([month, v]) => ({
     month,
     income: round2(v.income),
     expense: round2(v.expense),
     tax: round2(v.tax),
+    projected: false,
+    ...(breakdown
+      ? { incomeBy: roundBucket(v.incomeBy), expenseBy: roundBucket(v.expenseBy) }
+      : {}),
   }));
+
+  if (projectNext) {
+    const nextKey = new Date(Date.UTC(y, m + 1, 1)).toISOString().slice(0, 7);
+    const incomeBy = emptyBucket();
+    const expenseBy = emptyBucket();
+
+    // Ingresos "Proximamente" (por cobrar): proyectados al mes siguiente.
+    let pq = supabaseAdmin
+      .from("transactions")
+      .select("amount, ledger, property_id")
+      .eq("pending", true)
+      .eq("type", "income");
+    if (ledger) pq = pq.eq("ledger", ledger);
+    const { data: pend } = await pq;
+    let pIncome = 0;
+    for (const r of pend ?? []) {
+      const a = Number(r.amount);
+      pIncome += a;
+      incomeBy[sourceOf(r.ledger, r.property_id)] += a;
+    }
+
+    // Gastos/impuestos fijos activos: proyectados al mes siguiente.
+    let rq = supabaseAdmin
+      .from("recurring_expenses")
+      .select("amount, type, ledger, property_id")
+      .eq("active", true);
+    if (ledger) rq = rq.eq("ledger", ledger);
+    const { data: recs } = await rq;
+    let pExpense = 0;
+    let pTax = 0;
+    for (const r of recs ?? []) {
+      const a = Number(r.amount);
+      if (r.type === "tax") {
+        pTax += a;
+      } else {
+        pExpense += a;
+        expenseBy[sourceOf(r.ledger, r.property_id)] += a;
+      }
+    }
+
+    result.push({
+      month: nextKey,
+      income: round2(pIncome),
+      expense: round2(pExpense),
+      tax: round2(pTax),
+      projected: true,
+      ...(breakdown
+        ? { incomeBy: roundBucket(incomeBy), expenseBy: roundBucket(expenseBy) }
+        : {}),
+    });
+  }
+
+  return result;
 }
 
 // Serie mensual del neto de rentas (todos los pisos): income - expense - tax.

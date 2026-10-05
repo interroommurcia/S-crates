@@ -39,10 +39,13 @@ export async function GET(req: Request) {
     .limit(100);
   if (ledger) txq = txq.eq("ledger", ledger);
 
+  const monthsParam = Number(url.searchParams.get("months"));
+  const count = monthsParam === 12 ? 12 : 6;
+
   const [report, recent, series] = await Promise.all([
     computeReport(from, to, ledger),
     txq.then((r) => (r.data ?? []) as Transaction[]),
-    monthlySeries(refDate, 6, ledger),
+    monthlySeries(refDate, count, ledger, true),
   ]);
 
   return Response.json({ report, transactions: recent, series });

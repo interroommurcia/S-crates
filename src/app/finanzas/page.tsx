@@ -31,7 +31,16 @@ type Recurring = {
   day_of_month: number;
 };
 
-type SeriesPoint = { month: string; income: number; expense: number; tax: number };
+type SourceBucket = { personal: number; empresa: number; rentas: number };
+type SeriesPoint = {
+  month: string;
+  income: number;
+  expense: number;
+  tax: number;
+  projected?: boolean;
+  incomeBy?: SourceBucket;
+  expenseBy?: SourceBucket;
+};
 
 type Report = {
   period: { from: string; to: string };
@@ -67,6 +76,7 @@ type LedgerFilter = "conjunto" | "personal" | "empresa";
 
 export default function Finanzas() {
   const [month, setMonth] = useState(currentMonth);
+  const [range, setRange] = useState<6 | 12>(6);
   const [ledger, setLedger] = useState<LedgerFilter>("personal");
   const [report, setReport] = useState<Report | null>(null);
   const [txs, setTxs] = useState<Tx[]>([]);
@@ -81,7 +91,7 @@ export default function Finanzas() {
     setLoading(true);
     try {
       const q = ledger === "conjunto" ? "" : `&ledger=${ledger}`;
-      const res = await fetch(`/api/finance?month=${month}${q}`);
+      const res = await fetch(`/api/finance?month=${month}&months=${range}${q}`);
       if (!res.ok) return; // 500 transitorio: conserva datos previos
       const data = await res.json();
       setReport(data.report);
@@ -92,7 +102,7 @@ export default function Finanzas() {
     } finally {
       setLoading(false);
     }
-  }, [month, ledger]);
+  }, [month, ledger, range]);
 
   useEffect(() => {
     load();
@@ -200,9 +210,24 @@ export default function Finanzas() {
         </section>
 
         <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
-          <h2 className="text-sm font-semibold text-neutral-300 mb-4">
-            Ingresos vs gastos (últimos 6 meses)
-          </h2>
+          <div className="flex items-center justify-between mb-4">
+            <h2 className="text-sm font-semibold text-neutral-300">
+              Evolución · ingresos, gastos e impuestos
+            </h2>
+            <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-950 p-0.5">
+              {([6, 12] as const).map((r) => (
+                <button
+                  key={r}
+                  onClick={() => setRange(r)}
+                  className={`px-3 py-1 rounded-md text-xs transition-colors ${
+                    range === r ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
+                  }`}
+                >
+                  {r === 6 ? "6 meses" : "1 año"}
+                </button>
+              ))}
+            </div>
+          </div>
           <MonthlyChart data={series} />
         </section>
 
@@ -676,76 +701,230 @@ function NewTxForm({
   );
 }
 
+type SourceColors = Record<keyof SourceBucket, string>;
+const INCOME_SHADES: SourceColors = { personal: "#059669", empresa: "#34d399", rentas: "#a7f3d0" };
+const EXPENSE_SHADES: SourceColors = { personal: "#be123c", empresa: "#fb7185", rentas: "#fecdd3" };
+const SOURCE_ORDER: (keyof SourceBucket)[] = ["personal", "empresa", "rentas"];
+const INCOME_BASE = "#34d399";
+const EXPENSE_BASE = "#fb7185";
+const TAX_BASE = "#fbbf24";
+const NET_COLOR = "#e5e5e5";
+
 function MonthlyChart({ data }: { data: SeriesPoint[] }) {
+  const [visible, setVisible] = useState({ income: true, expense: true, tax: true, net: true });
+  const toggle = (k: keyof typeof visible) => setVisible((v) => ({ ...v, [k]: !v[k] }));
+
   if (data.length === 0) {
     return <p className="text-neutral-500 text-sm">Sin datos.</p>;
   }
-  const W = 620;
-  const H = 180;
-  const pad = { top: 10, bottom: 24, left: 8, right: 8 };
-  const max = Math.max(1, ...data.map((d) => Math.max(d.income, d.expense, d.tax)));
-  const groupW = (W - pad.left - pad.right) / data.length;
-  const barW = Math.min(14, groupW / 4);
-  const chartH = H - pad.top - pad.bottom;
-  const y = (v: number) => pad.top + chartH * (1 - v / max);
 
-  const monthLabel = (m: string) => {
-    const d = new Date(`${m}-01T00:00:00Z`);
-    return d.toLocaleDateString("es-ES", { month: "short" });
+  const isConjunto = data.some((d) => d.incomeBy || d.expenseBy);
+  const W = 640;
+  const H = 230;
+  const pad = { top: 14, bottom: 34, left: 54, right: 10 };
+  const chartH = H - pad.top - pad.bottom;
+  const chartW = W - pad.left - pad.right;
+
+  const net = data.map((d) => d.income - d.expense - d.tax);
+  const barVals = data.flatMap((d) => [
+    visible.income ? d.income : 0,
+    visible.expense ? d.expense : 0,
+    visible.tax ? d.tax : 0,
+  ]);
+  const netVals = visible.net ? net : [0];
+  const max = Math.max(1, ...barVals, ...netVals);
+  const min = Math.min(0, ...netVals);
+  const span = max - min || 1;
+  const y = (v: number) => pad.top + chartH * (1 - (v - min) / span);
+  const baseY = y(0);
+
+  const groupW = chartW / data.length;
+  const barW = Math.min(14, groupW / 5);
+  const cx = (i: number) => pad.left + groupW * i + groupW / 2;
+
+  const ticks = Array.from({ length: 5 }, (_, i) => min + (span * i) / 4);
+  const fmtTick = (v: number) => {
+    const a = Math.abs(v);
+    if (a >= 1000) return `${(v / 1000).toLocaleString("es-ES", { maximumFractionDigits: 1 })}k`;
+    return `${Math.round(v)}`;
   };
+  const monthLabel = (m: string) =>
+    new Date(`${m}-01T00:00:00Z`).toLocaleDateString("es-ES", { month: "short" });
+
+  const rect = (
+    key: string,
+    xc: number,
+    yTop: number,
+    h: number,
+    color: string,
+    projected: boolean,
+    title: string
+  ) => (
+    <rect
+      key={key}
+      x={xc}
+      y={yTop}
+      width={barW}
+      height={Math.max(0, h)}
+      rx={2}
+      fill={color}
+      fillOpacity={projected ? 0.4 : 1}
+      stroke={projected ? color : "none"}
+      strokeWidth={projected ? 0.75 : 0}
+      strokeDasharray={projected ? "2 1.5" : undefined}
+    >
+      <title>{title}</title>
+    </rect>
+  );
+
+  const singleBar = (xc: number, v: number, color: string, projected: boolean, label: string) =>
+    rect(label, xc, y(v), baseY - y(v), color, projected, `${label}: ${eur(v)}${projected ? " (proy.)" : ""}`);
+
+  const stackBar = (
+    xc: number,
+    buckets: SourceBucket,
+    palette: SourceColors,
+    projected: boolean,
+    kind: string
+  ) => {
+    let acc = 0;
+    return SOURCE_ORDER.map((k) => {
+      const v = buckets[k];
+      if (!(v > 0)) return null;
+      const yTop = y(acc + v);
+      const h = y(acc) - y(acc + v);
+      acc += v;
+      return rect(
+        `${kind}-${k}`,
+        xc,
+        yTop,
+        h,
+        palette[k],
+        projected,
+        `${kind} · ${k}: ${eur(v)}${projected ? " (proy.)" : ""}`
+      );
+    });
+  };
+
+  const netPts = net.map((v, i) => `${cx(i)},${y(v)}`);
+  const lastReal = data.findIndex((d) => d.projected);
+  const splitIdx = lastReal === -1 ? net.length : lastReal; // primer proyectado
+
+  const legendBtn = (k: keyof typeof visible, label: string, swatch: React.ReactNode) => (
+    <button
+      onClick={() => toggle(k)}
+      className={`flex items-center gap-1.5 transition-opacity ${
+        visible[k] ? "opacity-100" : "opacity-35"
+      }`}
+    >
+      {swatch}
+      <span className={visible[k] ? "" : "line-through"}>{label}</span>
+    </button>
+  );
 
   return (
     <div className="w-full overflow-x-auto">
-      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 420 }}>
+      <svg viewBox={`0 0 ${W} ${H}`} className="w-full" style={{ minWidth: 480 }}>
+        {ticks.map((t, i) => (
+          <g key={i}>
+            <line x1={pad.left} y1={y(t)} x2={W - pad.right} y2={y(t)} stroke="#262626" strokeWidth={1} />
+            <text x={pad.left - 6} y={y(t) + 3} textAnchor="end" fontSize="10" fill="#737373">
+              {fmtTick(t)}
+            </text>
+          </g>
+        ))}
+        {min < 0 && (
+          <line x1={pad.left} y1={baseY} x2={W - pad.right} y2={baseY} stroke="#525252" strokeWidth={1} />
+        )}
+
         {data.map((d, i) => {
-          const cx = pad.left + groupW * i + groupW / 2;
+          const c = cx(i);
+          const proj = !!d.projected;
           return (
             <g key={d.month}>
-              <rect
-                x={cx - barW * 1.5 - 2}
-                y={y(d.income)}
-                width={barW}
-                height={pad.top + chartH - y(d.income)}
-                rx={2}
-                fill="#34d399"
-              />
-              <rect
-                x={cx - barW / 2}
-                y={y(d.expense)}
-                width={barW}
-                height={pad.top + chartH - y(d.expense)}
-                rx={2}
-                fill="#fb7185"
-              />
-              <rect
-                x={cx + barW / 2 + 2}
-                y={y(d.tax)}
-                width={barW}
-                height={pad.top + chartH - y(d.tax)}
-                rx={2}
-                fill="#fbbf24"
-              />
-              <text x={cx} y={H - 8} textAnchor="middle" fontSize="11" fill="#a3a3a3">
+              {visible.income &&
+                (isConjunto && d.incomeBy
+                  ? stackBar(c - barW * 1.5 - 2, d.incomeBy, INCOME_SHADES, proj, "Ingresos")
+                  : singleBar(c - barW * 1.5 - 2, d.income, INCOME_BASE, proj, "Ingresos"))}
+              {visible.expense &&
+                (isConjunto && d.expenseBy
+                  ? stackBar(c - barW / 2, d.expenseBy, EXPENSE_SHADES, proj, "Gastos")
+                  : singleBar(c - barW / 2, d.expense, EXPENSE_BASE, proj, "Gastos"))}
+              {visible.tax && singleBar(c + barW / 2 + 2, d.tax, TAX_BASE, proj, "Impuestos")}
+              <text x={c} y={H - 16} textAnchor="middle" fontSize="10" fill="#a3a3a3">
                 {monthLabel(d.month)}
               </text>
+              {proj && (
+                <text x={c} y={H - 5} textAnchor="middle" fontSize="8" fill="#737373">
+                  proy.
+                </text>
+              )}
             </g>
           );
         })}
+
+        {visible.net && (
+          <>
+            <polyline points={netPts.slice(0, splitIdx + 1).join(" ")} fill="none" stroke={NET_COLOR} strokeWidth={1.5} />
+            {splitIdx < net.length - 1 && (
+              <polyline
+                points={netPts.slice(splitIdx).join(" ")}
+                fill="none"
+                stroke={NET_COLOR}
+                strokeWidth={1.5}
+                strokeDasharray="4 3"
+                opacity={0.7}
+              />
+            )}
+            {net.map((v, i) => (
+              <circle key={i} cx={cx(i)} cy={y(v)} r={2.2} fill={NET_COLOR} />
+            ))}
+          </>
+        )}
       </svg>
-      <div className="flex gap-4 justify-center mt-2 text-xs text-neutral-400">
+
+      <div className="flex flex-wrap gap-x-4 gap-y-1.5 justify-center mt-2 text-xs text-neutral-400">
+        {legendBtn(
+          "income",
+          "Ingresos",
+          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: INCOME_BASE }} />
+        )}
+        {legendBtn(
+          "expense",
+          "Gastos",
+          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: EXPENSE_BASE }} />
+        )}
+        {legendBtn(
+          "tax",
+          "Impuestos",
+          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: TAX_BASE }} />
+        )}
+        {legendBtn(
+          "net",
+          "Neto",
+          <span className="inline-block w-4 border-t-2 border-neutral-200" />
+        )}
         <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "#34d399" }} />
-          Ingresos
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "#fb7185" }} />
-          Gastos
-        </span>
-        <span className="flex items-center gap-1.5">
-          <span className="w-3 h-3 rounded-sm inline-block" style={{ background: "#fbbf24" }} />
-          Impuestos
+          <span
+            className="w-3 h-3 rounded-sm inline-block border border-neutral-600 opacity-40"
+            style={{ background: "#9ca3af" }}
+          />
+          Proyección
         </span>
       </div>
+
+      {isConjunto && (
+        <div className="flex flex-wrap gap-x-4 gap-y-1 justify-center mt-1.5 text-[11px] text-neutral-500">
+          <span className="text-neutral-600">Origen:</span>
+          {SOURCE_ORDER.map((k) => (
+            <span key={k} className="flex items-center gap-1 capitalize">
+              <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: INCOME_SHADES[k] }} />
+              <span className="w-2.5 h-2.5 rounded-sm inline-block" style={{ background: EXPENSE_SHADES[k] }} />
+              {k}
+            </span>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

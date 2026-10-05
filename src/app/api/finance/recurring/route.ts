@@ -46,8 +46,12 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
-  const { id } = await req.json();
-  // Borra la plantilla; las transacciones ya generadas se conservan (recurring_id -> null).
+  const { id, purge } = await req.json();
+  // purge: borra tambien los movimientos ya generados (para unificar duplicados).
+  if (purge) {
+    await supabaseAdmin.from("transactions").delete().eq("recurring_id", id);
+  }
+  // Borra la plantilla; si no se purga, las transacciones quedan (recurring_id -> null).
   const { error } = await supabaseAdmin.from("recurring_expenses").delete().eq("id", id);
   if (error) return Response.json({ error: error.message }, { status: 500 });
   return Response.json({ ok: true });

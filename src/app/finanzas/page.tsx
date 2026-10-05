@@ -1155,11 +1155,14 @@ function RecurringModal({
   }
 
   async function remove(id: string) {
-    if (!confirm("¿Eliminar este gasto fijo? Los ya registrados se conservan.")) return;
+    if (!confirm("¿Eliminar este gasto fijo?")) return;
+    const purge = confirm(
+      "¿Borrar también los movimientos ya registrados de este fijo?\n\nAceptar = sí (para unificar duplicados)\nCancelar = conservarlos"
+    );
     await fetch("/api/finance/recurring", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id }),
+      body: JSON.stringify({ id, purge }),
     });
     await load();
     onChanged();

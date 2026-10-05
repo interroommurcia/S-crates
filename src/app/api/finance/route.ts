@@ -12,22 +12,40 @@ export const runtime = "nodejs";
 
 type Row = Record<string, unknown>;
 
-// Campos de la plantilla fija derivados de una edicion de movimiento.
-function recurringFieldsFrom(update: Row): Row {
-  const rUpd: Row = {};
-  if (update.amount !== undefined) rUpd.amount = update.amount;
+// Campos que definen un fijo (sin fecha ni pending): se aplican a la plantilla
+// y a todas sus transacciones hermanas para que todo quede vinculado.
+function definitionFields(update: Row): Row {
+  const d: Row = {};
+  if (update.amount !== undefined) d.amount = update.amount;
   if (update.type === "income" || update.type === "expense" || update.type === "tax")
-    rUpd.type = update.type;
-  if (update.category !== undefined) rUpd.category = update.category;
-  if ("subcategory" in update) rUpd.subcategory = update.subcategory;
-  if ("description" in update) rUpd.description = update.description;
-  if (update.account !== undefined) rUpd.account = update.account;
-  if (update.ledger !== undefined) rUpd.ledger = update.ledger;
+    d.type = update.type;
+  if (update.category !== undefined) d.category = update.category;
+  if ("subcategory" in update) d.subcategory = update.subcategory;
+  if ("description" in update) d.description = update.description;
+  if (update.account !== undefined) d.account = update.account;
+  if (update.ledger !== undefined) d.ledger = update.ledger;
+  return d;
+}
+
+// Campos de la plantilla fija (definicion + dia del mes desde la fecha).
+function recurringFieldsFrom(update: Row): Row {
+  const rUpd = definitionFields(update);
   if (typeof update.occurred_at === "string") {
     const day = Number(update.occurred_at.slice(8, 10));
     if (day >= 1) rUpd.day_of_month = Math.min(day, 28);
   }
   return rUpd;
+}
+
+// Propaga la edicion a la plantilla y a TODOS los movimientos de ese fijo
+// (todos los meses, en personal y en rentas), sin tocar su fecha ni su pending.
+async function syncRecurring(recId: string, update: Row): Promise<void> {
+  const tpl = recurringFieldsFrom(update);
+  if (Object.keys(tpl).length > 0)
+    await supabaseAdmin.from("recurring_expenses").update(tpl).eq("id", recId);
+  const siblings = definitionFields(update);
+  if (Object.keys(siblings).length > 0)
+    await supabaseAdmin.from("transactions").update(siblings).eq("recurring_id", recId);
 }
 
 // Crea una plantilla fija a partir de un movimiento ya guardado.
@@ -185,9 +203,7 @@ export async function PATCH(req: Request) {
     // Alta/baja/edicion de ingreso fijo desde el propio movimiento.
     if (body.fixed) {
       if (recId) {
-        const rUpd = recurringFieldsFrom(update);
-        if (Object.keys(rUpd).length > 0)
-          await supabaseAdmin.from("recurring_expenses").update(rUpd).eq("id", recId);
+        await syncRecurring(recId, update);
       } else {
         const newId = await createRecurringFromTx(row);
         if (newId) {
@@ -202,10 +218,8 @@ export async function PATCH(req: Request) {
       row.recurring_id = null;
     }
   } else if (recId) {
-    // Gasto/impuesto fijo: propaga la edicion a la plantilla.
-    const rUpd = recurringFieldsFrom(update);
-    if (Object.keys(rUpd).length > 0)
-      await supabaseAdmin.from("recurring_expenses").update(rUpd).eq("id", recId);
+    // Gasto/impuesto/ingreso fijo: propaga la edicion a la plantilla y hermanas.
+    await syncRecurring(recId, update);
   }
 
   return Response.json({ ok: true, transaction: data });

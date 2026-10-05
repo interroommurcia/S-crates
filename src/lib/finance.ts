@@ -500,7 +500,7 @@ export async function monthlySeries(
       incomeBy[sourceOf(r.ledger, r.property_id)] += a;
     }
 
-    // Gastos/impuestos fijos activos: proyectados al mes siguiente.
+    // Fijos activos (ingresos, gastos e impuestos): proyectados al mes siguiente.
     let rq = supabaseAdmin
       .from("recurring_expenses")
       .select("amount, type, ledger, property_id")
@@ -511,7 +511,10 @@ export async function monthlySeries(
     let pTax = 0;
     for (const r of recs ?? []) {
       const a = Number(r.amount);
-      if (r.type === "tax") {
+      if (r.type === "income") {
+        pIncome += a;
+        incomeBy[sourceOf(r.ledger, r.property_id)] += a;
+      } else if (r.type === "tax") {
         pTax += a;
       } else {
         pExpense += a;

@@ -458,6 +458,9 @@ function NewTxForm({
   const [account, setAccount] = useState(editTx?.account ?? "banco");
   const [date, setDate] = useState(editTx?.occurred_at ?? (() => new Date().toISOString().slice(0, 10)));
   const [pending, setPending] = useState(editTx?.pending ?? false);
+  const [fixed, setFixed] = useState(
+    editTx ? editTx.type === "income" && !!editTx.recurring_id : false
+  );
   const [file, setFile] = useState<File | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -469,7 +472,10 @@ function NewTxForm({
   function changeType(t: TxType) {
     setType(t);
     setCategory(catsFor(t)[0]);
-    if (t !== "income") setPending(false);
+    if (t !== "income") {
+      setPending(false);
+      setFixed(false);
+    }
   }
 
   async function submit(e: React.FormEvent) {
@@ -501,6 +507,7 @@ function NewTxForm({
             account: account.trim() || undefined,
             date,
             pending,
+            fixed: type === "income" ? fixed : undefined,
           }),
         });
         const data = await res.json();
@@ -538,6 +545,7 @@ function NewTxForm({
           account: account.trim() || undefined,
           date,
           pending,
+          fixed: type === "income" ? fixed : undefined,
           receipt_path,
         }),
       });
@@ -646,17 +654,36 @@ function NewTxForm({
         </div>
 
         {type === "income" && (
-          <label className="flex items-center gap-2 rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 cursor-pointer">
-            <input
-              type="checkbox"
-              checked={pending}
-              onChange={(e) => setPending(e.target.checked)}
-              className="accent-amber-500"
-            />
-            <span className="text-sm">
-              Próximamente <span className="text-neutral-500">(por cobrar — no cuenta hasta marcarlo cobrado)</span>
-            </span>
-          </label>
+          <div className="space-y-2">
+            <label className="flex items-center gap-2 rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={pending}
+                onChange={(e) => {
+                  setPending(e.target.checked);
+                  if (e.target.checked) setFixed(false);
+                }}
+                className="accent-amber-500"
+              />
+              <span className="text-sm">
+                Próximamente <span className="text-neutral-500">(por cobrar — no cuenta hasta marcarlo cobrado)</span>
+              </span>
+            </label>
+            <label className="flex items-center gap-2 rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={fixed}
+                onChange={(e) => {
+                  setFixed(e.target.checked);
+                  if (e.target.checked) setPending(false);
+                }}
+                className="accent-emerald-500"
+              />
+              <span className="text-sm">
+                Ingreso fijo <span className="text-neutral-500">(se repite cada mes y entra en la proyección)</span>
+              </span>
+            </label>
+          </div>
         )}
 
         <div className="grid grid-cols-2 gap-3">
@@ -1070,7 +1097,10 @@ function RecurringModal({
     setLoading(true);
     try {
       const res = await fetch("/api/finance/recurring");
-      if (res.ok) setItems((await res.json()).recurring ?? []);
+      if (res.ok) {
+        const all = ((await res.json()).recurring ?? []) as Recurring[];
+        setItems(all.filter((r) => (r.type as string) !== "income")); // ingresos fijos se gestionan en el movimiento
+      }
     } finally {
       setLoading(false);
     }

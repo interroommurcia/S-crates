@@ -19,7 +19,8 @@ export async function POST(req: Request) {
   const amount = Number(body.amount);
   if (!(amount > 0)) return Response.json({ error: "Importe inválido" }, { status: 400 });
 
-  const type: "expense" | "tax" = body.type === "tax" ? "tax" : "expense";
+  const type: "income" | "expense" | "tax" =
+    body.type === "income" ? "income" : body.type === "tax" ? "tax" : "expense";
   const category = String(body.category ?? "otros").trim().toLowerCase() || "otros";
   const subcategory = body.subcategory
     ? String(body.subcategory).trim().toLowerCase() || null

@@ -10,6 +10,48 @@ import {
 
 export const runtime = "nodejs";
 
+type Row = Record<string, unknown>;
+
+// Campos de la plantilla fija derivados de una edicion de movimiento.
+function recurringFieldsFrom(update: Row): Row {
+  const rUpd: Row = {};
+  if (update.amount !== undefined) rUpd.amount = update.amount;
+  if (update.type === "income" || update.type === "expense" || update.type === "tax")
+    rUpd.type = update.type;
+  if (update.category !== undefined) rUpd.category = update.category;
+  if ("subcategory" in update) rUpd.subcategory = update.subcategory;
+  if ("description" in update) rUpd.description = update.description;
+  if (update.account !== undefined) rUpd.account = update.account;
+  if (update.ledger !== undefined) rUpd.ledger = update.ledger;
+  if (typeof update.occurred_at === "string") {
+    const day = Number(update.occurred_at.slice(8, 10));
+    if (day >= 1) rUpd.day_of_month = Math.min(day, 28);
+  }
+  return rUpd;
+}
+
+// Crea una plantilla fija a partir de un movimiento ya guardado.
+async function createRecurringFromTx(tx: Row): Promise<string | null> {
+  const day = Number(String(tx.occurred_at).slice(8, 10)) || 1;
+  const { data, error } = await supabaseAdmin
+    .from("recurring_expenses")
+    .insert({
+      amount: Number(tx.amount),
+      type: String(tx.type),
+      category: tx.category ?? "otros",
+      subcategory: tx.subcategory ?? null,
+      description: tx.description ?? null,
+      account: tx.account ?? "banco",
+      ledger: tx.ledger ?? "personal",
+      day_of_month: Math.min(Math.max(1, day), 28),
+      property_id: tx.property_id ?? null,
+    })
+    .select("id")
+    .single();
+  if (error) return null;
+  return data.id as string;
+}
+
 export async function GET(req: Request) {
   const url = new URL(req.url);
   const { from, to } = monthRange(
@@ -83,6 +125,16 @@ export async function POST(req: Request) {
     .single();
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
+
+  // Ingreso fijo: crea la plantilla y la enlaza.
+  if (type === "income" && body.fixed === true && data) {
+    const recId = await createRecurringFromTx(data as Row);
+    if (recId) {
+      await supabaseAdmin.from("transactions").update({ recurring_id: recId }).eq("id", data.id);
+      (data as Row).recurring_id = recId;
+    }
+  }
+
   return Response.json({ ok: true, transaction: data });
 }
 
@@ -126,23 +178,34 @@ export async function PATCH(req: Request) {
 
   if (error) return Response.json({ error: error.message }, { status: 500 });
 
-  // Si el movimiento viene de un gasto fijo, propaga la edicion a la plantilla.
-  if (data?.recurring_id) {
-    const rUpd: Record<string, unknown> = {};
-    if (update.amount !== undefined) rUpd.amount = update.amount;
-    if (update.type === "expense" || update.type === "tax") rUpd.type = update.type;
-    if (update.category !== undefined) rUpd.category = update.category;
-    if ("subcategory" in update) rUpd.subcategory = update.subcategory;
-    if ("description" in update) rUpd.description = update.description;
-    if (update.account !== undefined) rUpd.account = update.account;
-    if (update.ledger !== undefined) rUpd.ledger = update.ledger;
-    if (typeof update.occurred_at === "string") {
-      const day = Number(update.occurred_at.slice(8, 10));
-      if (day >= 1) rUpd.day_of_month = Math.min(day, 28);
+  const row = data as Row;
+  const recId = row?.recurring_id as string | null | undefined;
+
+  if (row?.type === "income" && typeof body.fixed === "boolean") {
+    // Alta/baja/edicion de ingreso fijo desde el propio movimiento.
+    if (body.fixed) {
+      if (recId) {
+        const rUpd = recurringFieldsFrom(update);
+        if (Object.keys(rUpd).length > 0)
+          await supabaseAdmin.from("recurring_expenses").update(rUpd).eq("id", recId);
+      } else {
+        const newId = await createRecurringFromTx(row);
+        if (newId) {
+          await supabaseAdmin.from("transactions").update({ recurring_id: newId }).eq("id", id);
+          row.recurring_id = newId;
+        }
+      }
+    } else if (recId) {
+      // Quitar el fijo: desactiva la plantilla y desvincula el movimiento.
+      await supabaseAdmin.from("recurring_expenses").update({ active: false }).eq("id", recId);
+      await supabaseAdmin.from("transactions").update({ recurring_id: null }).eq("id", id);
+      row.recurring_id = null;
     }
-    if (Object.keys(rUpd).length > 0) {
-      await supabaseAdmin.from("recurring_expenses").update(rUpd).eq("id", data.recurring_id);
-    }
+  } else if (recId) {
+    // Gasto/impuesto fijo: propaga la edicion a la plantilla.
+    const rUpd = recurringFieldsFrom(update);
+    if (Object.keys(rUpd).length > 0)
+      await supabaseAdmin.from("recurring_expenses").update(rUpd).eq("id", recId);
   }
 
   return Response.json({ ok: true, transaction: data });

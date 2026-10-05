@@ -14,13 +14,14 @@ type Tx = {
   description: string | null;
   account: string;
   property_id: string | null;
+  recurring_id: string | null;
   occurred_at: string;
 };
 
 type Recurring = {
   id: string;
   amount: number;
-  type: "expense" | "tax";
+  type: "income" | "expense" | "tax";
   category: string;
   description: string | null;
   day_of_month: number;
@@ -71,7 +72,9 @@ export default function Rentas() {
   const [selected, setSelected] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [showMove, setShowMove] = useState(false);
+  const [editTx, setEditTx] = useState<Tx | null>(null);
   const [showFijos, setShowFijos] = useState(false);
+  const [showFijosIncome, setShowFijosIncome] = useState(false);
   const [showAddProp, setShowAddProp] = useState(false);
 
   const load = useCallback(async () => {
@@ -106,6 +109,8 @@ export default function Rentas() {
     () => recurring.filter((r) => r.property_id === selected),
     [recurring, selected]
   );
+  const fixedCosts = useMemo(() => propRecurring.filter((r) => r.type !== "income"), [propRecurring]);
+  const fixedIncome = useMemo(() => propRecurring.filter((r) => r.type === "income"), [propRecurring]);
   const margin =
     current && current.income > 0 ? (current.net / current.income) * 100 : null;
 
@@ -274,7 +279,13 @@ export default function Rentas() {
                 onClick={() => setShowFijos(true)}
                 className="rounded-xl border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 px-4 py-2 text-sm font-medium transition-colors"
               >
-                Costes fijos ({propRecurring.length})
+                Costes fijos ({fixedCosts.length})
+              </button>
+              <button
+                onClick={() => setShowFijosIncome(true)}
+                className="rounded-xl border border-emerald-800 bg-neutral-900 hover:bg-neutral-800 text-emerald-300 px-4 py-2 text-sm font-medium transition-colors"
+              >
+                Ingresos fijos ({fixedIncome.length})
               </button>
               <button
                 onClick={removeProperty}
@@ -296,9 +307,14 @@ export default function Rentas() {
                 <div className="divide-y divide-neutral-800">
                   {propTxs.map((t) => (
                     <div key={t.id} className="flex items-center gap-3 py-3 group">
-                      <div className="flex-1 min-w-0">
+                      <div onClick={() => setEditTx(t)} className="flex-1 min-w-0 cursor-pointer">
                         <p className="text-sm truncate">
                           <span className="capitalize">{t.category}</span>
+                          {t.recurring_id ? (
+                            <span className="ml-2 rounded-full bg-sky-500/15 text-sky-400 px-2 py-0.5 text-[10px] font-medium align-middle">
+                              Fijo
+                            </span>
+                          ) : null}
                           {t.description ? (
                             <span className="text-neutral-400"> · {t.description}</span>
                           ) : null}
@@ -355,12 +371,38 @@ export default function Rentas() {
         />
       )}
 
+      {editTx && (
+        <MoveForm
+          propertyId={editTx.property_id ?? ""}
+          propertyName={current?.name ?? ""}
+          month={month}
+          editTx={editTx}
+          onClose={() => setEditTx(null)}
+          onSaved={() => {
+            setEditTx(null);
+            load();
+          }}
+        />
+      )}
+
       {showFijos && current && (
         <FijosModal
+          kind="expense"
           propertyId={current.id}
           propertyName={current.name}
-          items={propRecurring}
+          items={fixedCosts}
           onClose={() => setShowFijos(false)}
+          onChanged={load}
+        />
+      )}
+
+      {showFijosIncome && current && (
+        <FijosModal
+          kind="income"
+          propertyId={current.id}
+          propertyName={current.name}
+          items={fixedIncome}
+          onClose={() => setShowFijosIncome(false)}
           onChanged={load}
         />
       )}
@@ -443,24 +485,34 @@ function MoveForm({
   propertyId,
   propertyName,
   month,
+  editTx,
   onClose,
   onSaved,
 }: {
   propertyId: string;
   propertyName: string;
   month: string;
+  editTx?: Tx | null;
   onClose: () => void;
   onSaved: () => void;
 }) {
-  const [type, setType] = useState<"income" | "expense">("income");
-  const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState(RENT_INCOME_CATEGORIES[0]);
-  const [description, setDescription] = useState("");
-  const [account, setAccount] = useState("banco");
-  const [date, setDate] = useState(() => {
-    const today = new Date().toISOString().slice(0, 10);
-    return today.slice(0, 7) === month ? today : `${month}-01`;
-  });
+  const [type, setType] = useState<"income" | "expense">(
+    editTx?.type === "income" ? "income" : editTx ? "expense" : "income"
+  );
+  const [amount, setAmount] = useState(editTx ? String(editTx.amount).replace(".", ",") : "");
+  const [category, setCategory] = useState(editTx?.category ?? RENT_INCOME_CATEGORIES[0]);
+  const [description, setDescription] = useState(editTx?.description ?? "");
+  const [account, setAccount] = useState(editTx?.account ?? "banco");
+  const [date, setDate] = useState(
+    editTx?.occurred_at ??
+      (() => {
+        const today = new Date().toISOString().slice(0, 10);
+        return today.slice(0, 7) === month ? today : `${month}-01`;
+      })
+  );
+  const [fixed, setFixed] = useState(
+    editTx ? editTx.type === "income" && !!editTx.recurring_id : false
+  );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -469,6 +521,7 @@ function MoveForm({
   function changeType(t: "income" | "expense") {
     setType(t);
     setCategory((t === "income" ? RENT_INCOME_CATEGORIES : RENT_EXPENSE_CATEGORIES)[0]);
+    if (t !== "income") setFixed(false);
   }
 
   async function submit(e: React.FormEvent) {
@@ -482,17 +535,17 @@ function MoveForm({
     setError(null);
     try {
       const res = await fetch("/api/finance", {
-        method: "POST",
+        method: editTx ? "PATCH" : "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          ...(editTx ? { id: editTx.id } : { ledger: "personal", property_id: propertyId }),
           amount: value,
           type,
-          ledger: "personal",
-          property_id: propertyId,
           category,
-          description: description.trim() || undefined,
+          description: description.trim() || null,
           account: account.trim() || undefined,
           date,
+          fixed: type === "income" ? fixed : undefined,
         }),
       });
       const data = await res.json();
@@ -512,7 +565,9 @@ function MoveForm({
     <Overlay onClose={onClose}>
       <form onSubmit={submit} className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Movimiento · {propertyName}</h2>
+          <h2 className="text-lg font-semibold">
+            {editTx ? "Editar" : "Movimiento"} · {propertyName}
+          </h2>
           <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
             ✕
           </button>
@@ -599,6 +654,20 @@ function MoveForm({
           />
         </label>
 
+        {type === "income" && (
+          <label className="flex items-center gap-2 rounded-lg bg-neutral-800 border border-neutral-700 px-3 py-2 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={fixed}
+              onChange={(e) => setFixed(e.target.checked)}
+              className="accent-emerald-500"
+            />
+            <span className="text-sm">
+              Ingreso fijo <span className="text-neutral-500">(se repite cada mes y entra en la proyección)</span>
+            </span>
+          </label>
+        )}
+
         {error && <p className="text-sm text-rose-400">{error}</p>}
 
         <button
@@ -614,20 +683,24 @@ function MoveForm({
 }
 
 function FijosModal({
+  kind,
   propertyId,
   propertyName,
   items,
   onClose,
   onChanged,
 }: {
+  kind: "income" | "expense";
   propertyId: string;
   propertyName: string;
   items: Recurring[];
   onClose: () => void;
   onChanged: () => void;
 }) {
+  const isIncome = kind === "income";
+  const catList = isIncome ? RENT_INCOME_CATEGORIES : RENT_EXPENSE_CATEGORIES;
   const [amount, setAmount] = useState("");
-  const [category, setCategory] = useState(RENT_EXPENSE_CATEGORIES[0]);
+  const [category, setCategory] = useState(catList[0]);
   const [description, setDescription] = useState("");
   const [day, setDay] = useState("1");
   const [saving, setSaving] = useState(false);
@@ -648,7 +721,7 @@ function FijosModal({
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
           amount: value,
-          type: "expense",
+          type: kind,
           ledger: "personal",
           property_id: propertyId,
           category,
@@ -672,7 +745,8 @@ function FijosModal({
   }
 
   async function remove(id: string) {
-    if (!confirm("¿Eliminar este coste fijo? Los ya registrados se conservan.")) return;
+    if (!confirm(`¿Eliminar este ${isIncome ? "ingreso" : "coste"} fijo? Los ya registrados se conservan.`))
+      return;
     await fetch("/api/finance/recurring", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -685,17 +759,23 @@ function FijosModal({
     <Overlay onClose={onClose}>
       <div className="space-y-4">
         <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold">Costes fijos · {propertyName}</h2>
+          <h2 className="text-lg font-semibold">
+            {isIncome ? "Ingresos fijos" : "Costes fijos"} · {propertyName}
+          </h2>
           <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
             ✕
           </button>
         </div>
         <p className="text-xs text-neutral-500">
-          Alquiler, limpieza, etc. Se registran solos cada mes en el día indicado.
+          {isIncome
+            ? "Alquiler mensual, etc. Se registran solos cada mes y entran en la proyección."
+            : "Alquiler, limpieza, etc. Se registran solos cada mes en el día indicado."}
         </p>
 
         {items.length === 0 ? (
-          <p className="text-neutral-500 text-sm">Sin costes fijos todavía.</p>
+          <p className="text-neutral-500 text-sm">
+            Sin {isIncome ? "ingresos" : "costes"} fijos todavía.
+          </p>
         ) : (
           <div className="divide-y divide-neutral-800">
             {items.map((r) => (
@@ -709,7 +789,12 @@ function FijosModal({
                   </p>
                   <p className="text-xs text-neutral-500">día {r.day_of_month}</p>
                 </div>
-                <span className="text-sm font-medium tabular-nums text-rose-400">
+                <span
+                  className={`text-sm font-medium tabular-nums ${
+                    isIncome ? "text-emerald-400" : "text-rose-400"
+                  }`}
+                >
+                  {isIncome ? "+" : ""}
                   {eur(r.amount)}
                 </span>
                 <button
@@ -756,7 +841,7 @@ function FijosModal({
               onChange={(e) => setCategory(e.target.value)}
               className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm capitalize"
             >
-              {RENT_EXPENSE_CATEGORIES.map((c) => (
+              {catList.map((c) => (
                 <option key={c} value={c}>
                   {c}
                 </option>
@@ -769,7 +854,7 @@ function FijosModal({
               type="text"
               value={description}
               onChange={(e) => setDescription(e.target.value)}
-              placeholder="ej: alquiler propietario, limpieza"
+              placeholder={isIncome ? "ej: alquiler inquilino" : "ej: alquiler propietario, limpieza"}
               className="mt-1 w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
             />
           </label>
@@ -779,7 +864,7 @@ function FijosModal({
             disabled={saving}
             className="w-full rounded-lg bg-amber-600 hover:bg-amber-500 disabled:opacity-50 py-2.5 text-sm font-medium transition-colors"
           >
-            {saving ? "Guardando…" : "Añadir coste fijo"}
+            {saving ? "Guardando…" : isIncome ? "Añadir ingreso fijo" : "Añadir coste fijo"}
           </button>
         </form>
       </div>

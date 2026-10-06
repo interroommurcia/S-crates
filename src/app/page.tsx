@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ReactNode } from "react";
 import Link from "next/link";
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -9,10 +9,125 @@ function genId() {
   return crypto.randomUUID();
 }
 
+// Formateo ligero (solo estetica): negritas, codigo inline, titulos, listas y
+// separadores, sin dependencias externas ni HTML sin sanear.
+function renderInline(text: string): ReactNode[] {
+  const nodes: ReactNode[] = [];
+  const regex = /(\*\*([^*]+)\*\*|`([^`]+)`)/g;
+  let last = 0;
+  let key = 0;
+  let m: RegExpExecArray | null;
+  while ((m = regex.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    if (m[2] !== undefined) {
+      nodes.push(
+        <strong key={key++} className="font-semibold text-white">
+          {m[2]}
+        </strong>
+      );
+    } else {
+      nodes.push(
+        <code
+          key={key++}
+          className="rounded bg-black/30 px-1.5 py-0.5 text-[13px] font-mono text-amber-200"
+        >
+          {m[3]}
+        </code>
+      );
+    }
+    last = regex.lastIndex;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+function Rich({ text }: { text: string }) {
+  const lines = text.split("\n");
+  const blocks: ReactNode[] = [];
+  let list: { type: "ul" | "ol"; items: string[] } | null = null;
+  let key = 0;
+
+  const flush = () => {
+    if (!list) return;
+    const items = list.items.map((it, j) => (
+      <li key={j} className="marker:text-neutral-500">
+        {renderInline(it)}
+      </li>
+    ));
+    blocks.push(
+      list.type === "ol" ? (
+        <ol key={key++} className="list-decimal space-y-1 pl-5 my-2">
+          {items}
+        </ol>
+      ) : (
+        <ul key={key++} className="list-disc space-y-1 pl-5 my-2">
+          {items}
+        </ul>
+      )
+    );
+    list = null;
+  };
+
+  for (const raw of lines) {
+    const line = raw.trimEnd();
+    if (!line.trim()) {
+      flush();
+      continue;
+    }
+    if (/^---+$/.test(line.trim())) {
+      flush();
+      blocks.push(<hr key={key++} className="border-white/10 my-3" />);
+      continue;
+    }
+    const h = line.match(/^(#{1,3})\s+(.*)$/);
+    if (h) {
+      flush();
+      blocks.push(
+        <p
+          key={key++}
+          className={`font-semibold text-white mt-3 mb-1 ${
+            h[1].length === 1 ? "text-lg" : "text-[15px]"
+          }`}
+        >
+          {renderInline(h[2])}
+        </p>
+      );
+      continue;
+    }
+    const ol = line.match(/^\s*\d+\.\s+(.*)$/);
+    if (ol) {
+      if (!list || list.type !== "ol") {
+        flush();
+        list = { type: "ol", items: [] };
+      }
+      list.items.push(ol[1]);
+      continue;
+    }
+    const ul = line.match(/^\s*[-*]\s+(.*)$/);
+    if (ul) {
+      if (!list || list.type !== "ul") {
+        flush();
+        list = { type: "ul", items: [] };
+      }
+      list.items.push(ul[1]);
+      continue;
+    }
+    flush();
+    blocks.push(
+      <p key={key++} className="my-1.5">
+        {renderInline(line)}
+      </p>
+    );
+  }
+  flush();
+  return <>{blocks}</>;
+}
+
 export default function Home() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
+  const [status, setStatus] = useState("");
   const [convId] = useState(genId);
   const bottomRef = useRef<HTMLDivElement>(null);
   const dirtyRef = useRef(false);
@@ -71,19 +186,48 @@ export default function Home() {
 
       const decoder = new TextDecoder();
       let assistant = "";
+      let buffer = "";
+      setStatus("");
       setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
 
       while (true) {
         const { done, value } = await reader.read();
         if (done) break;
-        assistant += decoder.decode(value, { stream: true });
-        const current = assistant;
-        setMessages((prev) => [
-          ...prev.slice(0, -1),
-          { role: "assistant", content: current },
-        ]);
+        buffer += decoder.decode(value, { stream: true });
+
+        // Extrae los marcadores de estado \u0000S:...\u0000 (muletillas) y deja
+        // el resto como texto real de la respuesta.
+        let text = "";
+        while (true) {
+          const start = buffer.indexOf("\u0000");
+          if (start === -1) {
+            text += buffer;
+            buffer = "";
+            break;
+          }
+          text += buffer.slice(0, start);
+          const end = buffer.indexOf("\u0000", start + 1);
+          if (end === -1) {
+            buffer = buffer.slice(start); // marcador incompleto, espera mas
+            break;
+          }
+          const payload = buffer.slice(start + 1, end);
+          if (payload.startsWith("S:")) setStatus(payload.slice(2));
+          buffer = buffer.slice(end + 1);
+        }
+
+        if (text) {
+          assistant += text;
+          setStatus("");
+          const current = assistant;
+          setMessages((prev) => [
+            ...prev.slice(0, -1),
+            { role: "assistant", content: current },
+          ]);
+        }
       }
 
+      setStatus("");
       scheduleReflect();
     } catch {
       setMessages((prev) => [
@@ -92,6 +236,7 @@ export default function Home() {
       ]);
     } finally {
       setLoading(false);
+      setStatus("");
     }
   }
 
@@ -134,7 +279,7 @@ export default function Home() {
         </button>
       </header>
 
-      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6 space-y-4">
+      <div className="flex-1 min-h-0 overflow-y-auto px-4 py-6 space-y-5 max-w-3xl w-full mx-auto">
         {messages.length === 0 && (
           <div className="flex flex-col items-center justify-center h-full text-neutral-500 gap-4">
             <div className="w-20 h-20 rounded-full bg-gradient-to-br from-amber-500/20 to-orange-600/20 flex items-center justify-center text-4xl">
@@ -152,18 +297,25 @@ export default function Home() {
             className={`flex ${m.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm leading-relaxed whitespace-pre-wrap ${
+              className={`max-w-[85%] px-4 py-3 text-[15px] leading-7 ${
                 m.role === "user"
-                  ? "bg-amber-600 text-white"
-                  : "bg-neutral-800 text-neutral-100"
+                  ? "rounded-2xl rounded-br-md bg-gradient-to-br from-amber-500 to-orange-600 text-white shadow-sm whitespace-pre-wrap"
+                  : "rounded-2xl rounded-bl-md bg-neutral-800/70 border border-white/5 text-neutral-200 shadow-sm backdrop-blur-sm"
               }`}
             >
-              {m.content}
-              {m.role === "assistant" && !m.content && (
-                <span className="text-xs text-neutral-400 italic animate-pulse">
-                  Mmmmmm..
-                </span>
-              )}
+              {m.role === "assistant" ? <Rich text={m.content} /> : m.content}
+              {m.role === "assistant" &&
+                i === messages.length - 1 &&
+                loading &&
+                (status || !m.content) && (
+                  <span
+                    className={`text-xs text-neutral-400 italic animate-pulse ${
+                      m.content ? "block mt-2" : ""
+                    }`}
+                  >
+                    {status || "Mmmmmm.."}
+                  </span>
+                )}
             </div>
           </div>
         ))}

@@ -20,6 +20,20 @@ const MODEL = "claude-haiku-4-5-20251001";
 const AGENT_DEFAULT_MODEL = MODEL;
 const MAX_TOOL_ITERATIONS = 6;
 
+// Muletillas de estado que se emiten mientras Socrates usa una herramienta
+// (p.ej. busca en la web), para que el usuario vea que no se ha quedado pillado.
+// Se mandan al cliente con el marcador \u0000S:...\u0000 y no se persisten.
+const MULETILLAS = [
+  "Mirando hasta el ultimo detalle...",
+  "Dejame consultar las fuentes, buen amigo...",
+  "Por Zeus, buscando entre los textos...",
+  "Examinando lo que dicen las fuentes...",
+  "Un momento, que esto merece rigor...",
+  "Rastreando los hechos antes de pensarlos...",
+  "No quiero fingir lo que no se; buscando...",
+  "Consultando el agora, paciencia...",
+];
+
 export async function POST(req: Request) {
   try {
     const { messages, conversationId } = (await req.json()) as {
@@ -30,10 +44,25 @@ export async function POST(req: Request) {
     const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
     const agent = detectActiveAgent(messages);
     const systemPrompt = await buildSystemPrompt(lastUser, agent);
+    // web_fetch (leer el documento completo) solo se habilita si el usuario lo
+    // pide explicitamente: es lo lento y lo que causaba el timeout de Vercel.
+    // Por defecto basta web_search (enlace + fragmento), que es rapido.
+    const wantsFullFetch =
+      /\b(l[eé]e(lo|la)?|leer|texto\s+completo|contenido\s+completo|documento\s+entero|entero|[ií]ntegro|art[ií]culo\s+completo)\b/i.test(
+        lastUser
+      );
     const activeTools: Anthropic.Messages.ToolUnion[] = agent?.webSearch
       ? [
-          { type: "web_search_20260209", name: "web_search", max_uses: 5 },
-          { type: "web_fetch_20260209", name: "web_fetch", max_uses: 5 },
+          { type: "web_search_20260209", name: "web_search", max_uses: 3 },
+          ...(wantsFullFetch
+            ? [
+                {
+                  type: "web_fetch_20260209" as const,
+                  name: "web_fetch" as const,
+                  max_uses: 2,
+                },
+              ]
+            : []),
         ]
       : agent && !agent.useTools
         ? []
@@ -63,6 +92,15 @@ export async function POST(req: Request) {
             });
 
             for await (const event of s) {
+              if (
+                event.type === "content_block_start" &&
+                (event.content_block.type === "server_tool_use" ||
+                  event.content_block.type === "tool_use")
+              ) {
+                const frase =
+                  MULETILLAS[Math.floor(Math.random() * MULETILLAS.length)];
+                controller.enqueue(encoder.encode(`\u0000S:${frase}\u0000`));
+              }
               if (
                 event.type === "content_block_delta" &&
                 event.delta.type === "text_delta"

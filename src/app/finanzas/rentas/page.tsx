@@ -749,11 +749,21 @@ function FijosModal({
     const purge = confirm(
       "¿Borrar también los movimientos ya registrados de este fijo?\n\nAceptar = sí (para unificar duplicados)\nCancelar = conservarlos"
     );
-    await fetch("/api/finance/recurring", {
-      method: "DELETE",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ id, purge }),
-    });
+    try {
+      const res = await fetch("/api/finance/recurring", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ id, purge }),
+      });
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        alert(`No se pudo borrar: ${data.error ?? res.status}`);
+        return;
+      }
+    } catch {
+      alert("No se pudo borrar: error de red.");
+      return;
+    }
     onChanged();
   }
 

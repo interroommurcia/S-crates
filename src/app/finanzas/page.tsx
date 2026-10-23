@@ -1336,7 +1336,13 @@ function RecurringModal({
   );
 }
 
-type Note = { id: string; content: string; color: string; created_at: string };
+type Note = {
+  id: string;
+  content: string;
+  color: string;
+  created_at: string;
+  deleted_at?: string | null;
+};
 
 const NOTE_COLORS: Record<string, string> = {
   amber: "bg-amber-200 text-amber-950 shadow-amber-900/30",
@@ -1346,14 +1352,27 @@ const NOTE_COLORS: Record<string, string> = {
 };
 const COLOR_CYCLE = ["amber", "rose", "sky", "emerald"];
 
+const TRASH_DAYS = 3;
+
+function daysLeft(deletedAt: string) {
+  const ms = new Date(deletedAt).getTime() + TRASH_DAYS * 86400000 - Date.now();
+  return Math.max(0, Math.ceil(ms / 86400000));
+}
+
 function NotesPostit() {
   const [notes, setNotes] = useState<Note[]>([]);
+  const [trash, setTrash] = useState<Note[]>([]);
   const [open, setOpen] = useState(true);
+  const [view, setView] = useState<"notes" | "trash">("notes");
 
   const load = useCallback(async () => {
     try {
-      const res = await fetch("/api/notes");
-      if (res.ok) setNotes(await res.json());
+      const [a, t] = await Promise.all([
+        fetch("/api/notes"),
+        fetch("/api/notes?trash=1"),
+      ]);
+      if (a.ok) setNotes(await a.json());
+      if (t.ok) setTrash(await t.json());
     } catch {
       /* red: conserva notas previas */
     }
@@ -1385,8 +1404,12 @@ function NotesPostit() {
     }).catch(() => {});
   }
 
+  // Borrado a mano: pasa a la papelera (se puede recuperar 3 días).
   async function remove(id: string) {
+    const note = notes.find((n) => n.id === id);
     setNotes((prev) => prev.filter((n) => n.id !== id));
+    if (note)
+      setTrash((prev) => [{ ...note, deleted_at: new Date().toISOString() }, ...prev]);
     await fetch("/api/notes", {
       method: "DELETE",
       headers: { "Content-Type": "application/json" },
@@ -1394,29 +1417,61 @@ function NotesPostit() {
     }).catch(() => {});
   }
 
+  async function restore(id: string) {
+    const note = trash.find((n) => n.id === id);
+    setTrash((prev) => prev.filter((n) => n.id !== id));
+    if (note) setNotes((prev) => [{ ...note, deleted_at: null }, ...prev]);
+    await fetch("/api/notes", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, restore: true }),
+    }).catch(() => {});
+  }
+
+  async function removeForever(id: string) {
+    if (!confirm("¿Borrar esta nota para siempre? No se podrá recuperar.")) return;
+    setTrash((prev) => prev.filter((n) => n.id !== id));
+    await fetch("/api/notes", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, hard: true }),
+    }).catch(() => {});
+  }
+
   return (
     <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-sm font-semibold text-neutral-300">
-          Notas <span className="text-neutral-500 font-normal">· se borran a los 100 días</span>
+          Notas{" "}
+          <span className="text-neutral-500 font-normal">
+            · solo se borran a mano · papelera {TRASH_DAYS} días
+          </span>
         </h2>
         <div className="flex items-center gap-2">
+          <button
+            onClick={() => setView((v) => (v === "notes" ? "trash" : "notes"))}
+            className="text-xs text-neutral-400 hover:text-white transition-colors"
+          >
+            {view === "notes" ? `Papelera (${trash.length})` : "← Notas"}
+          </button>
           <button
             onClick={() => setOpen((o) => !o)}
             className="text-xs text-neutral-400 hover:text-white transition-colors"
           >
             {open ? "Ocultar" : "Mostrar"}
           </button>
-          <button
-            onClick={add}
-            className="rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-xs font-medium transition-colors"
-          >
-            + Nota
-          </button>
+          {view === "notes" && (
+            <button
+              onClick={add}
+              className="rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-xs font-medium transition-colors"
+            >
+              + Nota
+            </button>
+          )}
         </div>
       </div>
 
-      {open &&
+      {open && view === "notes" &&
         (notes.length === 0 ? (
           <p className="text-neutral-500 text-sm">Sin notas. Añade un post-it.</p>
         ) : (
@@ -1443,6 +1498,45 @@ function NotesPostit() {
                   placeholder="Escribe…"
                   className="w-full h-full resize-none bg-transparent text-sm leading-snug placeholder-black/30 focus:outline-none"
                 />
+              </div>
+            ))}
+          </div>
+        ))}
+
+      {open && view === "trash" &&
+        (trash.length === 0 ? (
+          <p className="text-neutral-500 text-sm">La papelera está vacía.</p>
+        ) : (
+          <div className="flex flex-wrap gap-4">
+            {trash.map((n, i) => (
+              <div
+                key={n.id}
+                className={`relative w-44 h-44 rounded-sm p-3 shadow-lg opacity-70 ${
+                  NOTE_COLORS[n.color] ?? NOTE_COLORS.amber
+                } ${i % 2 ? "rotate-1" : "-rotate-1"}`}
+              >
+                <div className="w-full h-[calc(100%-2.5rem)] overflow-hidden text-sm leading-snug whitespace-pre-wrap">
+                  {n.content || <span className="text-black/30">(vacía)</span>}
+                </div>
+                <div className="absolute inset-x-2 bottom-2 flex items-center justify-between gap-1">
+                  <span className="text-[10px] text-black/50">
+                    {n.deleted_at ? `${daysLeft(n.deleted_at)}d` : ""}
+                  </span>
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => restore(n.id)}
+                      className="text-[11px] font-medium text-black/70 hover:text-black underline"
+                    >
+                      Restaurar
+                    </button>
+                    <button
+                      onClick={() => removeForever(n.id)}
+                      className="text-[11px] font-medium text-rose-900/70 hover:text-rose-900 underline"
+                    >
+                      Borrar ya
+                    </button>
+                  </div>
+                </div>
               </div>
             ))}
           </div>

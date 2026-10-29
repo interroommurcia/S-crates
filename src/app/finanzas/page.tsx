@@ -1354,6 +1354,106 @@ const COLOR_CYCLE = ["amber", "rose", "sky", "emerald"];
 
 const TRASH_DAYS = 3;
 
+// Nota-tabla: se guarda como una nota normal con color "table" y el contenido
+// es un JSON con las filas. Columnas fijas de facturación por inmueble.
+const TABLE_COLS = ["Ref. Catastral", "Cliente", "E/P", "Fac. Env.", "Cobrado"] as const;
+type TableRow = { ref: string; cliente: string; ep: string; fac: string; cobrado: string };
+
+function emptyRow(): TableRow {
+  return { ref: "", cliente: "", ep: "", fac: "", cobrado: "" };
+}
+
+function parseRows(content: string): TableRow[] {
+  try {
+    const r = JSON.parse(content);
+    if (Array.isArray(r) && r.length) return r as TableRow[];
+  } catch {
+    /* contenido vacío o inválido */
+  }
+  return [emptyRow()];
+}
+
+function NoteTable({
+  note,
+  onSave,
+  onRemove,
+}: {
+  note: Note;
+  onSave: (id: string, content: string) => void;
+  onRemove: (id: string) => void;
+}) {
+  const [rows, setRows] = useState<TableRow[]>(() => parseRows(note.content));
+  const keys = ["ref", "cliente", "ep", "fac", "cobrado"] as const;
+
+  const persist = (next: TableRow[]) => {
+    setRows(next);
+    onSave(note.id, JSON.stringify(next));
+  };
+  const setCell = (i: number, key: keyof TableRow, value: string) =>
+    persist(rows.map((r, idx) => (idx === i ? { ...r, [key]: value } : r)));
+  const addRow = () => persist([...rows, emptyRow()]);
+  const delRow = (i: number) => persist(rows.filter((_, idx) => idx !== i) || []);
+
+  return (
+    <div className="w-full rounded-lg border border-neutral-700 bg-neutral-950/60 p-3">
+      <div className="mb-2 flex items-center justify-between">
+        <span className="text-xs font-medium text-neutral-400">Facturación por inmueble</span>
+        <button
+          onClick={() => onRemove(note.id)}
+          className="text-xs text-neutral-500 hover:text-rose-400 transition-colors"
+          aria-label="Borrar tabla"
+        >
+          ✕
+        </button>
+      </div>
+      <div className="overflow-x-auto">
+        <table className="w-full border-collapse text-sm">
+          <thead>
+            <tr className="text-left text-neutral-400">
+              {TABLE_COLS.map((c) => (
+                <th key={c} className="border-b border-neutral-700 px-2 py-1.5 font-medium whitespace-nowrap">
+                  {c}
+                </th>
+              ))}
+              <th className="border-b border-neutral-700 px-2 py-1.5" />
+            </tr>
+          </thead>
+          <tbody>
+            {rows.map((row, i) => (
+              <tr key={i} className="group">
+                {keys.map((k) => (
+                  <td key={k} className="border-b border-neutral-800 px-1 py-0.5">
+                    <input
+                      value={row[k]}
+                      onChange={(e) => setCell(i, k, e.target.value)}
+                      className="w-full min-w-[6rem] rounded bg-transparent px-1.5 py-1 text-neutral-100 focus:bg-neutral-800 focus:outline-none"
+                    />
+                  </td>
+                ))}
+                <td className="border-b border-neutral-800 px-1 text-center">
+                  <button
+                    onClick={() => delRow(i)}
+                    className="text-neutral-600 opacity-0 group-hover:opacity-100 hover:text-rose-400 transition"
+                    aria-label="Borrar fila"
+                  >
+                    ✕
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+      <button
+        onClick={addRow}
+        className="mt-2 rounded-lg border border-neutral-700 px-3 py-1 text-xs text-neutral-300 hover:bg-neutral-800 transition-colors"
+      >
+        + Fila
+      </button>
+    </div>
+  );
+}
+
 function daysLeft(deletedAt: string) {
   const ms = new Date(deletedAt).getTime() + TRASH_DAYS * 86400000 - Date.now();
   return Math.max(0, Math.ceil(ms / 86400000));
@@ -1382,12 +1482,12 @@ function NotesPostit() {
     load();
   }, [load]);
 
-  async function add() {
-    const color = COLOR_CYCLE[notes.length % COLOR_CYCLE.length];
+  async function add(color?: string, content = "") {
+    const c = color ?? COLOR_CYCLE[notes.length % COLOR_CYCLE.length];
     const res = await fetch("/api/notes", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ content: "", color }),
+      body: JSON.stringify({ content, color: c }),
     });
     if (res.ok) {
       const created = await res.json();
@@ -1461,12 +1561,20 @@ function NotesPostit() {
             {open ? "Ocultar" : "Mostrar"}
           </button>
           {view === "notes" && (
-            <button
-              onClick={add}
-              className="rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-xs font-medium transition-colors"
-            >
-              + Nota
-            </button>
+            <>
+              <button
+                onClick={() => add("table", JSON.stringify([emptyRow()]))}
+                className="rounded-lg bg-neutral-700 hover:bg-neutral-600 px-3 py-1.5 text-xs font-medium transition-colors"
+              >
+                + Tabla
+              </button>
+              <button
+                onClick={() => add()}
+                className="rounded-lg bg-amber-600 hover:bg-amber-500 px-3 py-1.5 text-xs font-medium transition-colors"
+              >
+                + Nota
+              </button>
+            </>
           )}
         </div>
       </div>
@@ -1475,8 +1583,14 @@ function NotesPostit() {
         (notes.length === 0 ? (
           <p className="text-neutral-500 text-sm">Sin notas. Añade un post-it.</p>
         ) : (
-          <div className="flex flex-wrap gap-4">
-            {notes.map((n, i) => (
+          <div className="space-y-4">
+            {notes
+              .filter((n) => n.color === "table")
+              .map((n) => (
+                <NoteTable key={n.id} note={n} onSave={save} onRemove={remove} />
+              ))}
+            <div className="flex flex-wrap gap-4">
+            {notes.filter((n) => n.color !== "table").map((n, i) => (
               <div
                 key={n.id}
                 className={`group relative w-44 h-44 rounded-sm p-3 shadow-lg ${
@@ -1500,6 +1614,7 @@ function NotesPostit() {
                 />
               </div>
             ))}
+            </div>
           </div>
         ))}
 

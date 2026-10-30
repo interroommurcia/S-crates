@@ -1423,10 +1423,21 @@ function NoteTable({
               <tr key={i} className="group">
                 {keys.map((k) => (
                   <td key={k} className="border-b border-neutral-800 px-1 py-0.5">
-                    <input
+                    <textarea
+                      rows={1}
                       value={row[k]}
-                      onChange={(e) => setCell(i, k, e.target.value)}
-                      className="w-full min-w-[6rem] rounded bg-transparent px-1.5 py-1 text-neutral-100 focus:bg-neutral-800 focus:outline-none"
+                      onChange={(e) => {
+                        setCell(i, k, e.target.value);
+                        e.target.style.height = "auto";
+                        e.target.style.height = `${e.target.scrollHeight}px`;
+                      }}
+                      ref={(el) => {
+                        if (el) {
+                          el.style.height = "auto";
+                          el.style.height = `${el.scrollHeight}px`;
+                        }
+                      }}
+                      className="w-full min-w-[6rem] resize-none overflow-hidden rounded bg-transparent px-1.5 py-1 leading-snug text-neutral-100 focus:bg-neutral-800 focus:outline-none"
                     />
                   </td>
                 ))}

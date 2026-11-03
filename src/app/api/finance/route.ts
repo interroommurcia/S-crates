@@ -99,14 +99,29 @@ export async function GET(req: Request) {
     .limit(100);
   if (ledger) txq = txq.eq("ledger", ledger);
 
+  // "Proximamente" (pendientes por cobrar): se muestran siempre, aunque su
+  // fecha caiga fuera del mes seleccionado.
+  let pendingq = supabaseAdmin
+    .from("transactions")
+    .select("*")
+    .eq("pending", true)
+    .order("occurred_at", { ascending: false })
+    .limit(100);
+  if (ledger) pendingq = pendingq.eq("ledger", ledger);
+
   const monthsParam = Number(url.searchParams.get("months"));
   const count = monthsParam === 12 ? 12 : 6;
 
-  const [report, recent, series] = await Promise.all([
+  const [report, monthTxs, pendingTxs, series] = await Promise.all([
     computeReport(from, to, ledger),
     txq.then((r) => (r.data ?? []) as Transaction[]),
+    pendingq.then((r) => (r.data ?? []) as Transaction[]),
     monthlySeries(refDate, count, ledger, true),
   ]);
+
+  // Une mes + pendientes sin duplicar (los pendientes del mes ya vienen en monthTxs).
+  const seen = new Set(monthTxs.map((t) => (t as { id: string }).id));
+  const recent = [...monthTxs, ...pendingTxs.filter((t) => !seen.has((t as { id: string }).id))];
 
   return Response.json({ report, transactions: recent, series });
 }

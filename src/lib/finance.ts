@@ -591,6 +591,8 @@ export type RatiosResult = {
   total_personal: number;
   // Deuda a amortizar: queda = inicial - pagos (gastos tagged 'deuda', todo el historico).
   debt: { name: string; initial: number; paid: number; remaining: number; progress: number } | null;
+  // Fondo de ahorro: saldo acumulado = base + aportaciones - retiradas (todo el historico).
+  fund: { name: string; base: number; contributed: number; total: number } | null;
   // Mes seleccionado, cuenta personal.
   month: {
     income: number;
@@ -623,25 +625,57 @@ async function sumPersonal(filter: {
 }
 
 export async function computeRatios(from: string, to: string): Promise<RatiosResult> {
-  const [incomeAll, expenseAll, taxAll, monthIncome, estiloVida, ahorro, debtRow] =
-    await Promise.all([
-      sumPersonal({ type: "income" }),
-      sumPersonal({ type: "expense" }),
-      sumPersonal({ type: "tax" }),
-      sumPersonal({ from, to, type: "income" }),
-      sumPersonal({ from, to, apartado: "estilo_vida" }),
-      sumPersonal({ from, to, apartado: "ahorro" }),
-      supabaseAdmin
-        .from("debts")
-        .select("name, initial_amount")
-        .eq("active", true)
-        .order("created_at", { ascending: true })
-        .limit(1)
-        .maybeSingle()
-        .then((r) => r.data),
-    ]);
+  const [
+    incomeAll,
+    expenseAll,
+    taxAll,
+    monthIncome,
+    estiloVida,
+    ahorro,
+    ahorroInAll,
+    ahorroOutAll,
+    debtRow,
+    fundRow,
+  ] = await Promise.all([
+    sumPersonal({ type: "income" }),
+    sumPersonal({ type: "expense" }),
+    sumPersonal({ type: "tax" }),
+    sumPersonal({ from, to, type: "income" }),
+    sumPersonal({ from, to, type: "expense", apartado: "estilo_vida" }),
+    sumPersonal({ from, to, type: "income", apartado: "ahorro" }),
+    sumPersonal({ type: "income", apartado: "ahorro" }),
+    sumPersonal({ type: "expense", apartado: "ahorro" }),
+    supabaseAdmin
+      .from("debts")
+      .select("name, initial_amount")
+      .eq("active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then((r) => r.data),
+    supabaseAdmin
+      .from("savings_funds")
+      .select("name, base_amount")
+      .eq("active", true)
+      .order("created_at", { ascending: true })
+      .limit(1)
+      .maybeSingle()
+      .then((r) => r.data),
+  ]);
 
   const total_personal = round2(incomeAll - expenseAll - taxAll);
+
+  let fund: RatiosResult["fund"] = null;
+  if (fundRow) {
+    const base = Number(fundRow.base_amount);
+    const contributed = round2(ahorroInAll - ahorroOutAll);
+    fund = {
+      name: fundRow.name,
+      base: round2(base),
+      contributed,
+      total: round2(base + contributed),
+    };
+  }
 
   let debt: RatiosResult["debt"] = null;
   if (debtRow) {
@@ -661,6 +695,7 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
     period: { from, to },
     total_personal,
     debt,
+    fund,
     month: {
       income: monthIncome,
       estilo_vida: estiloVida,

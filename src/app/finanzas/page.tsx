@@ -32,6 +32,7 @@ type Ratios = {
   period: { from: string; to: string };
   total_personal: number;
   debt: { name: string; initial: number; paid: number; remaining: number; progress: number } | null;
+  fund: { name: string; base: number; contributed: number; total: number } | null;
   month: {
     income: number;
     estilo_vida: number;
@@ -1734,21 +1735,32 @@ function RatiosModal({ month, onClose }: { month: string; onClose: () => void })
   const [data, setData] = useState<Ratios | null>(null);
   const [loading, setLoading] = useState(true);
 
-  useEffect(() => {
-    let alive = true;
-    (async () => {
-      setLoading(true);
-      try {
-        const res = await fetch(`/api/finance/ratios?month=${month}`);
-        if (res.ok && alive) setData(await res.json());
-      } finally {
-        if (alive) setLoading(false);
-      }
-    })();
-    return () => {
-      alive = false;
-    };
+  const load = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`/api/finance/ratios?month=${month}`);
+      if (res.ok) setData(await res.json());
+    } finally {
+      setLoading(false);
+    }
   }, [month]);
+
+  useEffect(() => {
+    load();
+  }, [load]);
+
+  async function editBase(current: number) {
+    const raw = prompt("Saldo de partida del fondo de ahorro (€):", String(current));
+    if (raw == null) return;
+    const base = Number(raw.replace(",", "."));
+    if (!(base >= 0)) return;
+    await fetch("/api/finance/fund", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ base_amount: base }),
+    }).catch(() => {});
+    load();
+  }
 
   const pct = (n: number | null | undefined) =>
     n == null ? "—" : `${Math.round(n * 100)}%`;
@@ -1758,6 +1770,7 @@ function RatiosModal({ month, onClose }: { month: string; onClose: () => void })
   });
 
   const d = data?.debt;
+  const f = data?.fund;
   const m = data?.month;
 
   return (
@@ -1814,6 +1827,29 @@ function RatiosModal({ month, onClose }: { month: string; onClose: () => void })
                 <div className="flex justify-between text-[11px] text-neutral-500">
                   <span>Amortizado {eur(d.paid)} ({pct(d.progress)})</span>
                   <span>Inicial {eur(d.initial)}</span>
+                </div>
+              </div>
+            )}
+
+            {f && (
+              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
+                <div className="flex items-baseline justify-between">
+                  <p className="text-sm font-medium text-neutral-200">{f.name}</p>
+                  <p className="text-xl font-bold tabular-nums text-emerald-400">{eur(f.total)}</p>
+                </div>
+                <div className="mt-1 flex items-center justify-between text-[11px] text-neutral-500">
+                  <span>
+                    Base {eur(f.base)}
+                    {f.contributed >= 0
+                      ? ` + aportado ${eur(f.contributed)}`
+                      : ` − retirado ${eur(-f.contributed)}`}
+                  </span>
+                  <button
+                    onClick={() => editBase(f.base)}
+                    className="text-neutral-400 hover:text-amber-400 transition-colors underline"
+                  >
+                    Ajustar base
+                  </button>
                 </div>
               </div>
             )}

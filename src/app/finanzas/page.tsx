@@ -28,19 +28,6 @@ const APARTADO_LABEL: Record<Apartado, string> = {
   deuda: "Deuda",
 };
 
-type Ratios = {
-  period: { from: string; to: string };
-  total_personal: number;
-  debt: { name: string; initial: number; paid: number; remaining: number; progress: number } | null;
-  fund: { name: string; base: number; contributed: number; total: number } | null;
-  month: {
-    income: number;
-    estilo_vida: number;
-    ahorro: number;
-    savings_rate: number | null;
-    lifestyle_rate: number | null;
-  };
-};
 
 type Recurring = {
   id: string;
@@ -107,7 +94,6 @@ export default function Finanzas() {
   const [loading, setLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [showRecurring, setShowRecurring] = useState(false);
-  const [showRatios, setShowRatios] = useState(false);
   const [editTx, setEditTx] = useState<Tx | null>(null);
   const [txFilter, setTxFilter] = useState<"todos" | "proximamente" | "fijos">("todos");
 
@@ -179,6 +165,12 @@ export default function Finanzas() {
         </div>
         <div className="flex items-center gap-3">
           <Link
+            href="/finanzas/ratios"
+            className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
+          >
+            Ratios
+          </Link>
+          <Link
             href="/finanzas/rentas"
             className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
           >
@@ -211,12 +203,6 @@ export default function Finanzas() {
             ))}
           </div>
           <div className="flex gap-2">
-            <button
-              onClick={() => setShowRatios(true)}
-              className="shrink-0 rounded-xl border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 px-4 py-2 text-sm font-medium transition-colors"
-            >
-              Ratios
-            </button>
             <button
               onClick={() => setShowRecurring(true)}
               className="shrink-0 rounded-xl border border-neutral-700 bg-neutral-900 hover:bg-neutral-800 px-4 py-2 text-sm font-medium transition-colors"
@@ -468,8 +454,6 @@ export default function Finanzas() {
           onChanged={load}
         />
       )}
-
-      {showRatios && <RatiosModal month={month} onClose={() => setShowRatios(false)} />}
     </main>
   );
 }
@@ -1728,190 +1712,6 @@ function NotesPostit() {
           </div>
         ))}
     </section>
-  );
-}
-
-function RatiosModal({ month, onClose }: { month: string; onClose: () => void }) {
-  const [data, setData] = useState<Ratios | null>(null);
-  const [loading, setLoading] = useState(true);
-
-  const load = useCallback(async () => {
-    setLoading(true);
-    try {
-      const res = await fetch(`/api/finance/ratios?month=${month}`);
-      if (res.ok) setData(await res.json());
-    } finally {
-      setLoading(false);
-    }
-  }, [month]);
-
-  useEffect(() => {
-    load();
-  }, [load]);
-
-  async function editBase(current: number) {
-    const raw = prompt("Saldo de partida del fondo de ahorro (€):", String(current));
-    if (raw == null) return;
-    const base = Number(raw.replace(",", "."));
-    if (!(base >= 0)) return;
-    await fetch("/api/finance/fund", {
-      method: "PATCH",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ base_amount: base }),
-    }).catch(() => {});
-    load();
-  }
-
-  const pct = (n: number | null | undefined) =>
-    n == null ? "—" : `${Math.round(n * 100)}%`;
-  const monthLabel = new Date(`${month}-01T00:00:00Z`).toLocaleDateString("es-ES", {
-    month: "long",
-    year: "numeric",
-  });
-
-  const d = data?.debt;
-  const f = data?.fund;
-  const m = data?.month;
-
-  return (
-    <div
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center bg-black/60 p-0 sm:p-4"
-      onClick={onClose}
-    >
-      <div
-        onClick={(e) => e.stopPropagation()}
-        className="w-full sm:max-w-md bg-neutral-900 border border-neutral-800 rounded-t-2xl sm:rounded-2xl p-5 space-y-4 max-h-[90vh] overflow-y-auto"
-      >
-        <div className="flex items-center justify-between">
-          <div>
-            <h2 className="text-lg font-semibold">Ratios · personal</h2>
-            <p className="text-xs text-neutral-500 capitalize">{monthLabel}</p>
-          </div>
-          <button type="button" onClick={onClose} className="text-neutral-500 hover:text-white">
-            ✕
-          </button>
-        </div>
-
-        {loading && !data ? (
-          <p className="text-neutral-500 text-sm">Calculando…</p>
-        ) : !data ? (
-          <p className="text-neutral-500 text-sm">No se pudieron cargar los ratios.</p>
-        ) : (
-          <>
-            <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-              <p className="text-xs text-neutral-400 mb-1">Total en la cuenta personal</p>
-              <p
-                className={`text-3xl font-bold tabular-nums ${
-                  data.total_personal >= 0 ? "text-emerald-400" : "text-rose-400"
-                }`}
-              >
-                {eur(data.total_personal)}
-              </p>
-              <p className="text-[11px] text-neutral-500 mt-1">
-                Acumulado: ingresos − gastos − impuestos de toda la cuenta personal.
-              </p>
-            </div>
-
-            {d && (
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5 space-y-2">
-                <div className="flex items-baseline justify-between">
-                  <p className="text-sm font-medium text-neutral-200">{d.name}</p>
-                  <p className="text-xl font-bold tabular-nums text-rose-400">{eur(d.remaining)}</p>
-                </div>
-                <div className="h-2.5 bg-neutral-800 rounded-full overflow-hidden">
-                  <div
-                    className="h-full bg-gradient-to-r from-emerald-500 to-emerald-400 rounded-full"
-                    style={{ width: `${Math.round(d.progress * 100)}%` }}
-                  />
-                </div>
-                <div className="flex justify-between text-[11px] text-neutral-500">
-                  <span>Amortizado {eur(d.paid)} ({pct(d.progress)})</span>
-                  <span>Inicial {eur(d.initial)}</span>
-                </div>
-              </div>
-            )}
-
-            {f && (
-              <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-5">
-                <div className="flex items-baseline justify-between">
-                  <p className="text-sm font-medium text-neutral-200">{f.name}</p>
-                  <p className="text-xl font-bold tabular-nums text-emerald-400">{eur(f.total)}</p>
-                </div>
-                <div className="mt-1 flex items-center justify-between text-[11px] text-neutral-500">
-                  <span>
-                    Base {eur(f.base)}
-                    {f.contributed >= 0
-                      ? ` + aportado ${eur(f.contributed)}`
-                      : ` − retirado ${eur(-f.contributed)}`}
-                  </span>
-                  <button
-                    onClick={() => editBase(f.base)}
-                    className="text-neutral-400 hover:text-amber-400 transition-colors underline"
-                  >
-                    Ajustar base
-                  </button>
-                </div>
-              </div>
-            )}
-
-            <div className="grid grid-cols-2 gap-3">
-              <RatioCard
-                label="Tasa de ahorro"
-                pct={pct(m?.savings_rate)}
-                sub={`${eur(m?.ahorro ?? 0)} de ${eur(m?.income ?? 0)}`}
-                accent="text-emerald-400"
-                fill={m?.savings_rate ?? 0}
-                fillColor="from-emerald-500 to-emerald-400"
-              />
-              <RatioCard
-                label="Estilo de vida"
-                pct={pct(m?.lifestyle_rate)}
-                sub={`${eur(m?.estilo_vida ?? 0)} de ${eur(m?.income ?? 0)}`}
-                accent="text-violet-300"
-                fill={m?.lifestyle_rate ?? 0}
-                fillColor="from-violet-500 to-fuchsia-400"
-              />
-            </div>
-
-            <p className="text-[11px] text-neutral-500">
-              Las tasas son sobre los ingresos personales de {monthLabel.split(" de ")[0]}. Etiqueta
-              cada movimiento con su apartado (Estilo de vida, Ahorro o Deuda) al añadirlo o editarlo
-              para que entre aquí.
-            </p>
-          </>
-        )}
-      </div>
-    </div>
-  );
-}
-
-function RatioCard({
-  label,
-  pct,
-  sub,
-  accent,
-  fill,
-  fillColor,
-}: {
-  label: string;
-  pct: string;
-  sub: string;
-  accent: string;
-  fill: number;
-  fillColor: string;
-}) {
-  return (
-    <div className="rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
-      <p className="text-xs text-neutral-400 mb-1">{label}</p>
-      <p className={`text-2xl font-bold tabular-nums ${accent}`}>{pct}</p>
-      <div className="h-1.5 bg-neutral-800 rounded-full overflow-hidden my-2">
-        <div
-          className={`h-full bg-gradient-to-r ${fillColor} rounded-full`}
-          style={{ width: `${Math.min(100, Math.max(0, fill * 100))}%` }}
-        />
-      </div>
-      <p className="text-[11px] text-neutral-500">{sub}</p>
-    </div>
   );
 }
 

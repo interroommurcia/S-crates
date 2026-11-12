@@ -593,6 +593,10 @@ export type RatiosResult = {
   debt: { name: string; initial: number; paid: number; remaining: number; progress: number } | null;
   // Fondo de ahorro: saldo acumulado = base + aportaciones - retiradas (todo el historico).
   fund: { name: string; base: number; contributed: number; total: number } | null;
+  // Patrimonio = cuenta personal + fondo de ahorro.
+  assets: number;
+  // Ratio de endeudamiento = deuda pendiente / patrimonio (0..n). null si no hay deuda o patrimonio <= 0.
+  debt_ratio: number | null;
   // Mes seleccionado, cuenta personal.
   month: {
     income: number;
@@ -691,11 +695,17 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
     };
   }
 
+  const assets = round2(total_personal + (fund?.total ?? 0));
+  const debt_ratio =
+    debt && debt.remaining > 0 && assets > 0 ? round2(debt.remaining / assets) : null;
+
   return {
     period: { from, to },
     total_personal,
     debt,
     fund,
+    assets,
+    debt_ratio,
     month: {
       income: monthIncome,
       estilo_vida: estiloVida,

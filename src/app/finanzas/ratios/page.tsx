@@ -12,6 +12,7 @@ type Ratios = {
   extras: { id: string; label: string; amount: number }[];
   total_debt: number;
   debt_ratio: number | null;
+  scope: "global" | "month";
   month: {
     income: number;
     estilo_vida: number;
@@ -31,18 +32,19 @@ function currentMonth() {
 
 export default function RatiosPage() {
   const [month, setMonth] = useState(currentMonth);
+  const [scope, setScope] = useState<"global" | "month">("global");
   const [data, setData] = useState<Ratios | null>(null);
   const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const res = await fetch(`/api/finance/ratios?month=${month}`);
+      const res = await fetch(`/api/finance/ratios?scope=${scope}&month=${month}`);
       if (res.ok) setData(await res.json());
     } finally {
       setLoading(false);
     }
-  }, [month]);
+  }, [month, scope]);
 
   useEffect(() => {
     load();
@@ -78,6 +80,7 @@ export default function RatiosPage() {
     year: "numeric",
   });
   const monthName = monthLabel.split(" de ")[0];
+  const rateScope = scope === "global" ? "global" : monthName;
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white">
@@ -91,19 +94,36 @@ export default function RatiosPage() {
           </Link>
           <div>
             <h1 className="text-lg font-semibold">Ratios</h1>
-            <p className="text-xs text-neutral-400">Cuenta personal · {monthLabel}</p>
+            <p className="text-xs text-neutral-400">
+              Cuenta personal · {scope === "global" ? "global" : monthLabel}
+            </p>
           </div>
         </div>
         <div className="flex items-center gap-3">
+          <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900 p-0.5">
+            {(["global", "month"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setScope(s)}
+                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                  scope === s ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                {s === "global" ? "Global" : "Mes"}
+              </button>
+            ))}
+          </div>
+          {scope === "month" && (
+            <input
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          )}
           <Link href="/finanzas" className="text-sm text-neutral-400 hover:text-amber-500 transition-colors">
             ← Finanzas
           </Link>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
-          />
         </div>
       </header>
 
@@ -227,7 +247,7 @@ export default function RatiosPage() {
             {/* Ratios del mes */}
             <section className="grid grid-cols-1 sm:grid-cols-2 gap-4">
               <RatioCard
-                label={`Tasa de ahorro · ${monthName}`}
+                label={`Tasa de ahorro · ${rateScope}`}
                 pct={pct(m?.savings_rate)}
                 sub={`${eur(m?.ahorro ?? 0)} ahorrado de ${eur(m?.income ?? 0)} de ingresos`}
                 accent="text-emerald-400"
@@ -235,7 +255,7 @@ export default function RatiosPage() {
                 fillColor="from-emerald-500 to-emerald-400"
               />
               <RatioCard
-                label={`Estilo de vida · ${monthName}`}
+                label={`Estilo de vida · ${rateScope}`}
                 pct={pct(m?.lifestyle_rate)}
                 sub={`${eur(m?.estilo_vida ?? 0)} de ${eur(m?.income ?? 0)} de ingresos`}
                 accent="text-violet-300"
@@ -257,9 +277,11 @@ export default function RatiosPage() {
             </section>
 
             <p className="text-xs text-neutral-500">
-              Las tasas del mes se calculan sobre tus ingresos personales de {monthName}. Etiqueta
-              cada movimiento con su apartado (Estilo de vida, Ahorro o Deuda) al añadirlo o editarlo
-              para que entre aquí.
+              {scope === "global"
+                ? "Las tasas se calculan sobre todos tus ingresos personales registrados."
+                : `Las tasas se calculan sobre tus ingresos personales de ${monthName}.`}{" "}
+              Etiqueta cada movimiento con su apartado (Estilo de vida, Ahorro o Deuda) al añadirlo o
+              editarlo para que entre aquí.
             </p>
           </>
         )}

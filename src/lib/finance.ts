@@ -601,7 +601,9 @@ export type RatiosResult = {
   total_debt: number;
   // Ratio de endeudamiento = deuda total / patrimonio (0..n). null si no hay deuda o patrimonio <= 0.
   debt_ratio: number | null;
-  // Mes seleccionado, cuenta personal.
+  // Alcance de las tasas de ahorro/estilo de vida: "global" (todo) o "month".
+  scope: "global" | "month";
+  // Tasas de ahorro/estilo de vida en el alcance elegido, cuenta personal.
   month: {
     income: number;
     estilo_vida: number;
@@ -632,16 +634,21 @@ async function sumPersonal(filter: {
   return round2((data ?? []).reduce((s, r) => s + Number(r.amount), 0));
 }
 
-export async function computeRatios(from: string, to: string): Promise<RatiosResult> {
+export async function computeRatios(
+  from: string,
+  to: string,
+  scope: "global" | "month" = "global"
+): Promise<RatiosResult> {
   const [
     incomeAll,
     expenseAll,
     taxAll,
     monthIncome,
-    estiloVida,
-    ahorro,
+    estiloVidaMonth,
+    ahorroMonth,
     ahorroInAll,
     ahorroOutAll,
+    estiloVidaAll,
     debtRow,
     fundRow,
     extraRows,
@@ -654,6 +661,7 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
     sumPersonal({ from, to, type: "income", apartado: "ahorro" }),
     sumPersonal({ type: "income", apartado: "ahorro" }),
     sumPersonal({ type: "expense", apartado: "ahorro" }),
+    sumPersonal({ type: "expense", apartado: "estilo_vida" }),
     supabaseAdmin
       .from("debts")
       .select("name, initial_amount")
@@ -717,6 +725,11 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
   const total_debt = round2(Math.max(0, (debt?.remaining ?? 0) - extrasSum));
   const debt_ratio = total_debt > 0 && assets > 0 ? round2(total_debt / assets) : null;
 
+  // Bloque de tasas segun alcance: global (todo el historico) o mes seleccionado.
+  const rIncome = scope === "global" ? incomeAll : monthIncome;
+  const rAhorro = scope === "global" ? ahorroInAll : ahorroMonth;
+  const rEstilo = scope === "global" ? estiloVidaAll : estiloVidaMonth;
+
   return {
     period: { from, to },
     total_personal,
@@ -726,12 +739,13 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
     extras,
     total_debt,
     debt_ratio,
+    scope,
     month: {
-      income: monthIncome,
-      estilo_vida: estiloVida,
-      ahorro,
-      savings_rate: monthIncome > 0 ? round2(ahorro / monthIncome) : null,
-      lifestyle_rate: monthIncome > 0 ? round2(estiloVida / monthIncome) : null,
+      income: round2(rIncome),
+      estilo_vida: round2(rEstilo),
+      ahorro: round2(rAhorro),
+      savings_rate: rIncome > 0 ? round2(rAhorro / rIncome) : null,
+      lifestyle_rate: rIncome > 0 ? round2(rEstilo / rIncome) : null,
     },
   };
 }

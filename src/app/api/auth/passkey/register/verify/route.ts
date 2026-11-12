@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/guard";
 import { verifyRegistrationResponse } from "@simplewebauthn/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { rpConfig, getChallenge, clearChallenge } from "@/lib/webauthn";
@@ -6,6 +7,8 @@ export const runtime = "nodejs";
 
 // Protegida por middleware (requiere sesion).
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const body = await req.json();
   const { rpID, origin } = rpConfig(req);
   const expectedChallenge = await getChallenge();
@@ -21,7 +24,7 @@ export async function POST(req: Request) {
       expectedChallenge,
       expectedOrigin: origin,
       expectedRPID: rpID,
-      requireUserVerification: false,
+      requireUserVerification: true,
     });
   } catch (e) {
     return Response.json(

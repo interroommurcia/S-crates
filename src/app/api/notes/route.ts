@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/guard";
 import { supabaseAdmin } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -13,6 +14,8 @@ async function purgeTrash() {
 }
 
 export async function GET(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   await purgeTrash();
   const trash = new URL(req.url).searchParams.get("trash") === "1";
   const q = supabaseAdmin.from("notes").select("*");
@@ -25,6 +28,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { content, color } = await req.json();
   const { data, error } = await supabaseAdmin
     .from("notes")
@@ -37,6 +42,8 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { id, content, color, restore } = await req.json();
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() };
   if (restore) patch.deleted_at = null;
@@ -55,6 +62,8 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { id, hard } = await req.json();
   // hard: borrado definitivo. Por defecto, borrado a la papelera (soft).
   const op = hard

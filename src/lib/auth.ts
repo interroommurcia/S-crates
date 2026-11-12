@@ -57,9 +57,58 @@ export async function verifySessionToken(token: string | undefined): Promise<boo
   return Number.isFinite(exp) && exp > Date.now();
 }
 
+// Firma generica con separacion de dominio (p.ej. el challenge de WebAuthn),
+// para que una firma de un contexto no valga en otro.
+export async function signValue(domain: string, value: string): Promise<string> {
+  return hmac(`${domain}:${value}`);
+}
+
+export async function verifySignedValue(
+  domain: string,
+  value: string,
+  sig: string
+): Promise<boolean> {
+  if (!secret()) return false;
+  return timingSafeEqual(sig, await signValue(domain, value));
+}
+
+function hexToBytes(hex: string): Uint8Array<ArrayBuffer> {
+  const out = new Uint8Array(new ArrayBuffer(hex.length / 2));
+  for (let i = 0; i < out.length; i++) out[i] = parseInt(hex.slice(i * 2, i * 2 + 2), 16);
+  return out;
+}
+
+export async function pbkdf2Hex(
+  password: string,
+  saltHex: string,
+  iterations: number
+): Promise<string> {
+  const key = await crypto.subtle.importKey("raw", enc.encode(password), "PBKDF2", false, [
+    "deriveBits",
+  ]);
+  const bits = await crypto.subtle.deriveBits(
+    { name: "PBKDF2", hash: "SHA-256", salt: hexToBytes(saltHex), iterations },
+    key,
+    256
+  );
+  return [...new Uint8Array(bits)].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+// AUTH_PASSWORD_HASH admite dos formatos:
+//  - "pbkdf2:<iteraciones>:<saltHex>:<hashHex>"  (recomendado; ver scripts/hash-password.mjs)
+//  - "<sha256Hex>"  (heredado: sin sal y rapido de crackear si el hash se filtra)
 export async function verifyPassword(password: string): Promise<boolean> {
   const hash = (process.env.AUTH_PASSWORD_HASH ?? "").replace(/[^\x20-\x7E]/g, "").toLowerCase();
-  if (!hash) return false;
+  if (!hash || password.length > 256) return false;
+
+  if (hash.startsWith("pbkdf2:")) {
+    const [, iterS, saltHex, hashHex] = hash.split(":");
+    const iterations = Number(iterS);
+    if (!Number.isInteger(iterations) || iterations < 100_000 || iterations > 5_000_000) return false;
+    if (!/^[0-9a-f]{16,}$/.test(saltHex ?? "") || !/^[0-9a-f]{64}$/.test(hashHex ?? "")) return false;
+    return timingSafeEqual(await pbkdf2Hex(password, saltHex, iterations), hashHex);
+  }
+
   const got = await sha256Hex(password);
   return timingSafeEqual(got, hash);
 }

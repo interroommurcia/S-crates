@@ -1,9 +1,12 @@
+import { requireSession } from "@/lib/guard";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import { ensureRecurringForMonth, type Ledger } from "@/lib/finance";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { data, error } = await supabaseAdmin
     .from("recurring_expenses")
     .select("*")
@@ -15,6 +18,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const body = await req.json();
   const amount = Number(body.amount);
   if (!(amount > 0)) return Response.json({ error: "Importe inválido" }, { status: 400 });
@@ -46,6 +51,8 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { id, purge } = await req.json();
   // purge: borra tambien los movimientos ya generados (para unificar duplicados).
   if (purge) {

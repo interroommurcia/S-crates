@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/guard";
 import { supabaseAdmin } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -7,6 +8,8 @@ const MAX_BYTES = 10 * 1024 * 1024; // 10 MB
 
 // Sube un PDF y devuelve su path en el bucket.
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const form = await req.formData();
   const file = form.get("file");
   if (!(file instanceof File)) {
@@ -31,6 +34,8 @@ export async function POST(req: Request) {
 
 // Redirige a una URL firmada temporal para ver/descargar el PDF.
 export async function GET(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const path = new URL(req.url).searchParams.get("path");
   if (!path) return Response.json({ error: "Falta path" }, { status: 400 });
 

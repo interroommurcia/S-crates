@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/guard";
 import { supabaseAdmin } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
@@ -15,6 +16,8 @@ async function purgePast() {
 }
 
 export async function GET() {
+  const denied = await requireSession();
+  if (denied) return denied;
   await purgePast();
   const { data, error } = await supabaseAdmin
     .from("calendar_events")
@@ -27,6 +30,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const body = await req.json();
   const kind: "task" | "meeting" = body.kind === "meeting" ? "meeting" : "task";
   const title = String(body.title ?? "").trim();
@@ -55,6 +60,8 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { id } = await req.json();
   const { error } = await supabaseAdmin.from("calendar_events").delete().eq("id", id);
   if (error) return Response.json({ error: error.message }, { status: 500 });

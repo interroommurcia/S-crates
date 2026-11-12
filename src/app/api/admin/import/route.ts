@@ -1,9 +1,12 @@
+import { requireSession } from "@/lib/guard";
 import { parseBankCsv, insertTransactions, type ParsedTx } from "@/lib/import-csv";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   try {
     const body = (await req.json()) as {
       csv?: string;

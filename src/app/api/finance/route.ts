@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/guard";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import {
   computeReport,
@@ -71,6 +72,8 @@ async function createRecurringFromTx(tx: Row): Promise<string | null> {
 }
 
 export async function GET(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const url = new URL(req.url);
   const { from, to } = monthRange(
     url.searchParams.get("month")
@@ -127,6 +130,8 @@ export async function GET(req: Request) {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const body = await req.json();
   const amount = Number(body.amount);
   if (!(amount > 0)) return Response.json({ error: "Importe inválido" }, { status: 400 });
@@ -172,6 +177,8 @@ export async function POST(req: Request) {
 }
 
 export async function PATCH(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const body = await req.json();
   const id = body.id;
   if (!id) return Response.json({ error: "id requerido" }, { status: 400 });
@@ -241,6 +248,8 @@ export async function PATCH(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { id } = await req.json();
 
   // Borra el PDF adjunto del bucket si existe

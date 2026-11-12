@@ -1,8 +1,11 @@
+import { requireSession } from "@/lib/guard";
 import { supabaseAdmin } from "@/lib/supabase-server";
 
 export const runtime = "nodejs";
 
 export async function GET() {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { data, error } = await supabaseAdmin
     .from("facts")
     .select("id, content, category, importance, source, created_at")
@@ -13,6 +16,8 @@ export async function GET() {
 }
 
 export async function DELETE(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { id } = (await req.json()) as { id?: string };
   if (!id) return Response.json({ error: "id requerido" }, { status: 400 });
   const { error } = await supabaseAdmin.from("facts").delete().eq("id", id);

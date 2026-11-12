@@ -1,9 +1,12 @@
+import { requireSession } from "@/lib/guard";
 import { reflectOnConversation } from "@/lib/reflect";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   try {
     const { conversationId } = (await req.json()) as { conversationId?: string };
     if (!conversationId) {

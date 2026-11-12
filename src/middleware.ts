@@ -12,6 +12,22 @@ const PUBLIC_PATHS = [
 export async function middleware(req: NextRequest) {
   const { pathname } = req.nextUrl;
 
+  // Anti-CSRF: ninguna peticion que modifique estado puede venir de otro origen.
+  if (!["GET", "HEAD", "OPTIONS"].includes(req.method)) {
+    const origin = req.headers.get("origin");
+    let sameOrigin = true;
+    if (origin) {
+      try {
+        sameOrigin = new URL(origin).host === req.headers.get("host");
+      } catch {
+        sameOrigin = false;
+      }
+    }
+    if (!sameOrigin || req.headers.get("sec-fetch-site") === "cross-site") {
+      return jsonNoIndex({ error: "origen no permitido" }, 403);
+    }
+  }
+
   const isPublic = PUBLIC_PATHS.some(
     (p) => pathname === p || pathname.startsWith(p + "/")
   );

@@ -1,9 +1,12 @@
+import { requireSession } from "@/lib/guard";
 import { createProtocol, listProtocols, deleteProtocol } from "@/lib/protocols";
 
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
 export async function GET() {
+  const denied = await requireSession();
+  if (denied) return denied;
   try {
     return Response.json(await listProtocols());
   } catch (e) {
@@ -15,6 +18,8 @@ export async function GET() {
 }
 
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   try {
     const { title, content } = (await req.json()) as {
       title?: string;
@@ -34,6 +39,8 @@ export async function POST(req: Request) {
 }
 
 export async function DELETE(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   try {
     const { id } = (await req.json()) as { id?: string };
     if (!id) return Response.json({ error: "id requerido" }, { status: 400 });

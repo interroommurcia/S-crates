@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/guard";
 import Anthropic from "@anthropic-ai/sdk";
 import type {
   MessageParam,
@@ -35,13 +36,33 @@ const MULETILLAS = [
 ];
 
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   try {
     const { messages, conversationId } = (await req.json()) as {
       messages: Mensaje[];
       conversationId?: string;
     };
 
-    const lastUser = [...messages].reverse().find((m) => m.role === "user")?.content ?? "";
+    // Validacion de entrada: forma, roles y tamano (acota coste y abuso).
+    const validShape =
+      Array.isArray(messages) &&
+      messages.length > 0 &&
+      messages.length <= 300 &&
+      messages.every(
+        (m) =>
+          m &&
+          (m.role === "user" || m.role === "assistant") &&
+          typeof m.content === "string"
+      ) &&
+      messages.reduce((n, m) => n + m.content.length, 0) <= 600_000 &&
+      (conversationId === undefined ||
+        (typeof conversationId === "string" && /^[0-9a-f-]{36}$/i.test(conversationId)));
+    if (!validShape) {
+      return Response.json({ error: "peticion invalida" }, { status: 400 });
+    }
+
+    const lastUser =[...messages].reverse().find((m) => m.role === "user")?.content ?? "";
     const agent = detectActiveAgent(messages);
     const systemPrompt = await buildSystemPrompt(lastUser, agent);
     // web_fetch (leer el documento completo) solo se habilita si el usuario lo

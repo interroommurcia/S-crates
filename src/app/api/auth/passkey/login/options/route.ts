@@ -18,7 +18,7 @@ export async function POST(req: Request) {
       id: c.credential_id,
       transports: (c.transports ?? []) as never,
     })),
-    userVerification: "preferred",
+    userVerification: "required",
   });
 
   await setChallenge(options.challenge);

@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/guard";
 import { generateRegistrationOptions } from "@simplewebauthn/server";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import {
@@ -12,6 +13,8 @@ export const runtime = "nodejs";
 
 // Protegida por middleware (requiere sesion).
 export async function POST(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const { rpID } = rpConfig(req);
 
   const { data: existing } = await supabaseAdmin
@@ -30,7 +33,7 @@ export async function POST(req: Request) {
     })),
     authenticatorSelection: {
       residentKey: "preferred",
-      userVerification: "preferred",
+      userVerification: "required",
     },
   });
 

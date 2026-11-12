@@ -1,4 +1,5 @@
 import { cookies } from "next/headers";
+import { signValue, verifySignedValue } from "./auth";
 
 export const RP_NAME = "Sócrates";
 export const CHALLENGE_COOKIE = "wa_challenge";
@@ -25,20 +26,35 @@ export function rpConfig(req: Request): { rpID: string; origin: string } {
   return { rpID, origin: `${proto}://${host}` };
 }
 
+const CHALLENGE_TTL = 300; // segundos
+
+// El challenge viaja en una cookie FIRMADA y con caducidad: asi el cliente no
+// puede fijar un challenge arbitrario (lo que permitiria reutilizar una
+// respuesta de passkey capturada en el pasado).
 export async function setChallenge(challenge: string): Promise<void> {
+  const exp = Date.now() + CHALLENGE_TTL * 1000;
+  const value = `${challenge}.${exp}`;
+  const sig = await signValue("wa-challenge", value);
   const jar = await cookies();
-  jar.set(CHALLENGE_COOKIE, challenge, {
+  jar.set(CHALLENGE_COOKIE, `${value}.${sig}`, {
     httpOnly: true,
     secure: process.env.NODE_ENV === "production",
-    sameSite: "lax",
+    sameSite: "strict",
     path: "/",
-    maxAge: 300,
+    maxAge: CHALLENGE_TTL,
   });
 }
 
 export async function getChallenge(): Promise<string | undefined> {
   const jar = await cookies();
-  return jar.get(CHALLENGE_COOKIE)?.value;
+  const raw = jar.get(CHALLENGE_COOKIE)?.value;
+  if (!raw) return undefined;
+  const parts = raw.split(".");
+  if (parts.length !== 3) return undefined;
+  const [challenge, exp, sig] = parts;
+  if (!(await verifySignedValue("wa-challenge", `${challenge}.${exp}`, sig))) return undefined;
+  if (!(Number(exp) > Date.now())) return undefined;
+  return challenge;
 }
 
 export async function clearChallenge(): Promise<void> {

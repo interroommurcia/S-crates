@@ -1,3 +1,4 @@
+import { requireSession } from "@/lib/guard";
 import { supabaseAdmin } from "@/lib/supabase-server";
 import {
   monthRange,
@@ -11,6 +12,8 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 export async function GET(req: Request) {
+  const denied = await requireSession();
+  if (denied) return denied;
   const url = new URL(req.url);
   const refDate = url.searchParams.get("month")
     ? new Date(`${url.searchParams.get("month")}-01T00:00:00Z`)

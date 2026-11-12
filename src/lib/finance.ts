@@ -713,7 +713,8 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
     amount: round2(Number(e.amount)),
   }));
   const extrasSum = extras.reduce((s, e) => s + e.amount, 0);
-  const total_debt = round2((debt?.remaining ?? 0) + extrasSum);
+  // C y P restan de la deuda del ratio (suelo en 0).
+  const total_debt = round2(Math.max(0, (debt?.remaining ?? 0) - extrasSum));
   const debt_ratio = total_debt > 0 && assets > 0 ? round2(total_debt / assets) : null;
 
   return {

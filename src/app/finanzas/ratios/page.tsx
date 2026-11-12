@@ -245,9 +245,9 @@ export default function RatiosPage() {
             </section>
 
             <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
-              <h2 className="text-sm font-semibold text-neutral-300 mb-1">Pasivos extra</h2>
+              <h2 className="text-sm font-semibold text-neutral-300 mb-1">Ajustes C y P</h2>
               <p className="text-xs text-neutral-500 mb-4">
-                Suman a la deuda del ratio de endeudamiento, pero no al patrimonio.
+                Restan de la deuda del ratio de endeudamiento, pero no tocan el patrimonio.
               </p>
               <div className="grid grid-cols-2 gap-4">
                 {data.extras.map((e) => (
@@ -306,7 +306,7 @@ function ExtraBox({
           onKeyDown={(e) => {
             if (e.key === "Enter") (e.target as HTMLInputElement).blur();
           }}
-          className="w-full bg-transparent text-3xl font-bold tabular-nums text-rose-400 focus:outline-none"
+          className="w-full bg-transparent text-3xl font-bold tabular-nums text-emerald-400 focus:outline-none"
         />
         <span className="text-xl text-neutral-500">€</span>
       </div>

@@ -9,6 +9,8 @@ type Ratios = {
   debt: { name: string; initial: number; paid: number; remaining: number; progress: number } | null;
   fund: { name: string; base: number; contributed: number; total: number } | null;
   assets: number;
+  extras: { id: string; label: string; amount: number }[];
+  total_debt: number;
   debt_ratio: number | null;
   month: {
     income: number;
@@ -55,6 +57,15 @@ export default function RatiosPage() {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ base_amount: base }),
+    }).catch(() => {});
+    load();
+  }
+
+  async function saveExtra(id: string, amount: number) {
+    await fetch("/api/finance/extra-debts", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, amount }),
     }).catch(() => {});
     load();
   }
@@ -162,8 +173,8 @@ export default function RatiosPage() {
                 />
               </div>
               <p className="text-xs text-neutral-500 mt-2">
-                Deuda pendiente {eur(d?.remaining ?? 0)} ÷ patrimonio {eur(data.assets)}. Cuanto más
-                bajo, mejor.
+                Deuda total {eur(data.total_debt)} ÷ patrimonio {eur(data.assets)}. Cuanto más bajo,
+                mejor.
               </p>
             </section>
 
@@ -233,6 +244,18 @@ export default function RatiosPage() {
               />
             </section>
 
+            <section className="rounded-2xl border border-neutral-800 bg-neutral-900 p-6">
+              <h2 className="text-sm font-semibold text-neutral-300 mb-1">Pasivos extra</h2>
+              <p className="text-xs text-neutral-500 mb-4">
+                Suman a la deuda del ratio de endeudamiento, pero no al patrimonio.
+              </p>
+              <div className="grid grid-cols-2 gap-4">
+                {data.extras.map((e) => (
+                  <ExtraBox key={e.id} label={e.label} amount={e.amount} onSave={(v) => saveExtra(e.id, v)} />
+                ))}
+              </div>
+            </section>
+
             <p className="text-xs text-neutral-500">
               Las tasas del mes se calculan sobre tus ingresos personales de {monthName}. Etiqueta
               cada movimiento con su apartado (Estilo de vida, Ahorro o Deuda) al añadirlo o editarlo
@@ -242,6 +265,52 @@ export default function RatiosPage() {
         )}
       </div>
     </main>
+  );
+}
+
+function ExtraBox({
+  label,
+  amount,
+  onSave,
+}: {
+  label: string;
+  amount: number;
+  onSave: (v: number) => void;
+}) {
+  const [val, setVal] = useState(String(amount).replace(".", ","));
+
+  // Refleja cambios externos (recarga) cuando no se está editando.
+  useEffect(() => {
+    setVal(String(amount).replace(".", ","));
+  }, [amount]);
+
+  function commit() {
+    const n = Number(val.replace(",", "."));
+    if (!(n >= 0)) {
+      setVal(String(amount).replace(".", ","));
+      return;
+    }
+    if (n !== amount) onSave(n);
+  }
+
+  return (
+    <label className="block rounded-2xl border border-neutral-800 bg-neutral-950 p-4">
+      <span className="text-sm text-neutral-400">{label}</span>
+      <div className="mt-1 flex items-baseline gap-1">
+        <input
+          type="text"
+          inputMode="decimal"
+          value={val}
+          onChange={(e) => setVal(e.target.value)}
+          onBlur={commit}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") (e.target as HTMLInputElement).blur();
+          }}
+          className="w-full bg-transparent text-3xl font-bold tabular-nums text-rose-400 focus:outline-none"
+        />
+        <span className="text-xl text-neutral-500">€</span>
+      </div>
+    </label>
   );
 }
 

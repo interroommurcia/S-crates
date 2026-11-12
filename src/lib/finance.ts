@@ -595,7 +595,11 @@ export type RatiosResult = {
   fund: { name: string; base: number; contributed: number; total: number } | null;
   // Patrimonio = cuenta personal + fondo de ahorro.
   assets: number;
-  // Ratio de endeudamiento = deuda pendiente / patrimonio (0..n). null si no hay deuda o patrimonio <= 0.
+  // Pasivos manuales extra (C, P): suman a la deuda del ratio, no al patrimonio.
+  extras: { id: string; label: string; amount: number }[];
+  // Deuda total = deuda pendiente + extras.
+  total_debt: number;
+  // Ratio de endeudamiento = deuda total / patrimonio (0..n). null si no hay deuda o patrimonio <= 0.
   debt_ratio: number | null;
   // Mes seleccionado, cuenta personal.
   month: {
@@ -640,6 +644,7 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
     ahorroOutAll,
     debtRow,
     fundRow,
+    extraRows,
   ] = await Promise.all([
     sumPersonal({ type: "income" }),
     sumPersonal({ type: "expense" }),
@@ -665,6 +670,12 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
       .limit(1)
       .maybeSingle()
       .then((r) => r.data),
+    supabaseAdmin
+      .from("extra_debts")
+      .select("id, label, amount")
+      .order("position", { ascending: true })
+      .order("created_at", { ascending: true })
+      .then((r) => r.data ?? []),
   ]);
 
   const total_personal = round2(incomeAll - expenseAll - taxAll);
@@ -696,8 +707,14 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
   }
 
   const assets = round2(total_personal + (fund?.total ?? 0));
-  const debt_ratio =
-    debt && debt.remaining > 0 && assets > 0 ? round2(debt.remaining / assets) : null;
+  const extras = (extraRows ?? []).map((e) => ({
+    id: e.id as string,
+    label: e.label as string,
+    amount: round2(Number(e.amount)),
+  }));
+  const extrasSum = extras.reduce((s, e) => s + e.amount, 0);
+  const total_debt = round2((debt?.remaining ?? 0) + extrasSum);
+  const debt_ratio = total_debt > 0 && assets > 0 ? round2(total_debt / assets) : null;
 
   return {
     period: { from, to },
@@ -705,6 +722,8 @@ export async function computeRatios(from: string, to: string): Promise<RatiosRes
     debt,
     fund,
     assets,
+    extras,
+    total_debt,
     debt_ratio,
     month: {
       income: monthIncome,

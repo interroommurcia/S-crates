@@ -5,6 +5,7 @@ import {
   monthRange,
   monthlySeries,
   ensureRecurringForMonth,
+  normalizeApartado,
   type Transaction,
   type Ledger,
 } from "@/lib/finance";
@@ -155,10 +156,11 @@ export async function POST(req: Request) {
     typeof body.property_id === "string" && body.property_id ? body.property_id : null;
   // "Proximamente": solo aplica a ingresos por cobrar.
   const pending = type === "income" && body.pending === true;
+  const apartado = normalizeApartado(body.apartado);
 
   const { data, error } = await supabaseAdmin
     .from("transactions")
-    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at, receipt_path, property_id, pending })
+    .insert({ amount, type, category, subcategory, description, account, ledger, occurred_at, receipt_path, property_id, pending, apartado })
     .select("*")
     .single();
 
@@ -205,6 +207,7 @@ export async function PATCH(req: Request) {
   if (typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date))
     update.occurred_at = body.date;
   if (typeof body.pending === "boolean") update.pending = body.pending;
+  if ("apartado" in body) update.apartado = normalizeApartado(body.apartado);
 
   if (Object.keys(update).length === 0)
     return Response.json({ error: "Nada que actualizar" }, { status: 400 });

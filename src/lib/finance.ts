@@ -40,6 +40,19 @@ export const TAX_CATEGORIES = [
   "otros",
 ] as const;
 
+export const APARTADOS = ["estilo_vida", "ahorro", "deuda"] as const;
+export type Apartado = (typeof APARTADOS)[number];
+export const APARTADO_LABEL: Record<Apartado, string> = {
+  estilo_vida: "Estilo de vida",
+  ahorro: "Ahorro",
+  deuda: "Deuda",
+};
+export function normalizeApartado(v: unknown): Apartado | null {
+  return typeof v === "string" && (APARTADOS as readonly string[]).includes(v)
+    ? (v as Apartado)
+    : null;
+}
+
 export type Ledger = "personal" | "empresa";
 export type TxType = "income" | "expense" | "tax";
 
@@ -570,6 +583,92 @@ export async function propertyMonthlySeries(
   }
 
   return Object.entries(buckets).map(([month, net]) => ({ month, net: round2(net) }));
+}
+
+export type RatiosResult = {
+  period: { from: string; to: string };
+  // Acumulado (todo el historico), cuenta personal.
+  total_personal: number;
+  // Deuda a amortizar: queda = inicial - pagos (gastos tagged 'deuda', todo el historico).
+  debt: { name: string; initial: number; paid: number; remaining: number; progress: number } | null;
+  // Mes seleccionado, cuenta personal.
+  month: {
+    income: number;
+    estilo_vida: number;
+    ahorro: number;
+    // Ratios sobre ingresos del mes (0..1). null si no hay ingresos.
+    savings_rate: number | null;
+    lifestyle_rate: number | null;
+  };
+};
+
+// Suma amounts de movimientos personales no pendientes con un filtro dado.
+async function sumPersonal(filter: {
+  from?: string;
+  to?: string;
+  type?: TxType;
+  apartado?: Apartado;
+}): Promise<number> {
+  let q = supabaseAdmin
+    .from("transactions")
+    .select("amount")
+    .eq("ledger", "personal")
+    .eq("pending", false);
+  if (filter.from) q = q.gte("occurred_at", filter.from);
+  if (filter.to) q = q.lte("occurred_at", filter.to);
+  if (filter.type) q = q.eq("type", filter.type);
+  if (filter.apartado) q = q.eq("apartado", filter.apartado);
+  const { data } = await q;
+  return round2((data ?? []).reduce((s, r) => s + Number(r.amount), 0));
+}
+
+export async function computeRatios(from: string, to: string): Promise<RatiosResult> {
+  const [incomeAll, expenseAll, taxAll, monthIncome, estiloVida, ahorro, debtRow] =
+    await Promise.all([
+      sumPersonal({ type: "income" }),
+      sumPersonal({ type: "expense" }),
+      sumPersonal({ type: "tax" }),
+      sumPersonal({ from, to, type: "income" }),
+      sumPersonal({ from, to, apartado: "estilo_vida" }),
+      sumPersonal({ from, to, apartado: "ahorro" }),
+      supabaseAdmin
+        .from("debts")
+        .select("name, initial_amount")
+        .eq("active", true)
+        .order("created_at", { ascending: true })
+        .limit(1)
+        .maybeSingle()
+        .then((r) => r.data),
+    ]);
+
+  const total_personal = round2(incomeAll - expenseAll - taxAll);
+
+  let debt: RatiosResult["debt"] = null;
+  if (debtRow) {
+    const initial = Number(debtRow.initial_amount);
+    const paid = await sumPersonal({ type: "expense", apartado: "deuda" });
+    const remaining = round2(Math.max(0, initial - paid));
+    debt = {
+      name: debtRow.name,
+      initial: round2(initial),
+      paid: round2(paid),
+      remaining,
+      progress: initial > 0 ? round2(Math.min(1, paid / initial)) : 0,
+    };
+  }
+
+  return {
+    period: { from, to },
+    total_personal,
+    debt,
+    month: {
+      income: monthIncome,
+      estilo_vida: estiloVida,
+      ahorro,
+      savings_rate: monthIncome > 0 ? round2(ahorro / monthIncome) : null,
+      lifestyle_rate: monthIncome > 0 ? round2(estiloVida / monthIncome) : null,
+    },
+  };
 }
 
 async function deleteTransaction(input: Record<string, unknown>): Promise<ToolResult> {

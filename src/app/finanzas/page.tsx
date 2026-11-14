@@ -363,14 +363,14 @@ export default function Finanzas() {
                           {APARTADO_LABEL[t.apartado]}
                         </span>
                       ) : null}
-                      {t.subcategory ? (
-                        <span className="text-neutral-500"> / {t.subcategory}</span>
-                      ) : null}
                       {t.description ? (
                         <span className="text-neutral-400"> · {t.description}</span>
                       ) : null}
                     </p>
                     <p className="text-xs text-neutral-500">
+                      {t.subcategory ? (
+                        <span className="text-neutral-400">{t.subcategory} · </span>
+                      ) : null}
                       {t.occurred_at} · {t.account}
                       {t.receipt_path ? (
                         <>
@@ -412,7 +412,7 @@ export default function Finanzas() {
                   ) : null}
                   <button
                     onClick={() => remove(t.id)}
-                    className="opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 transition text-xs"
+                    className="hidden sm:block opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 transition text-xs"
                     aria-label="Borrar"
                   >
                     ✕

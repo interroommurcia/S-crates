@@ -93,14 +93,44 @@ export async function GET(req: Request) {
   // Genera los gastos fijos de este mes si aun no existen.
   await ensureRecurringForMonth(refDate.toISOString().slice(0, 7));
 
+  const scope = url.searchParams.get("scope") === "global" ? "global" : "month";
+  const today = new Date().toISOString().slice(0, 10);
+
+  // Rango del informe: mes seleccionado, o todo el histórico en "global".
+  let reportFrom = from;
+  let reportTo = to;
+  let seriesCount = Number(url.searchParams.get("months")) === 12 ? 12 : 6;
+  let seriesRef = refDate;
+
+  if (scope === "global") {
+    reportFrom = "1900-01-01";
+    reportTo = today;
+    seriesRef = new Date();
+    // Nº de meses desde el primer movimiento hasta hoy, para que la línea
+    // acumulada arranque en 0 en el primer mes con datos.
+    let eq = supabaseAdmin
+      .from("transactions")
+      .select("occurred_at")
+      .eq("pending", false)
+      .order("occurred_at", { ascending: true })
+      .limit(1);
+    if (ledger) eq = eq.eq("ledger", ledger);
+    const { data: firstRow } = await eq;
+    const first = firstRow?.[0]?.occurred_at ? String(firstRow[0].occurred_at) : today;
+    const fy = Number(first.slice(0, 4));
+    const fm = Number(first.slice(5, 7));
+    const now = new Date();
+    const months = (now.getUTCFullYear() - fy) * 12 + (now.getUTCMonth() + 1 - fm) + 1;
+    seriesCount = Math.min(24, Math.max(3, months));
+  }
+
   let txq = supabaseAdmin
     .from("transactions")
     .select("*")
-    .gte("occurred_at", from)
-    .lte("occurred_at", to)
     .order("occurred_at", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(100);
+  if (scope !== "global") txq = txq.gte("occurred_at", from).lte("occurred_at", to);
   if (ledger) txq = txq.eq("ledger", ledger);
 
   // "Proximamente" (pendientes por cobrar): se muestran siempre, aunque su
@@ -113,14 +143,11 @@ export async function GET(req: Request) {
     .limit(100);
   if (ledger) pendingq = pendingq.eq("ledger", ledger);
 
-  const monthsParam = Number(url.searchParams.get("months"));
-  const count = monthsParam === 12 ? 12 : 6;
-
   const [report, monthTxs, pendingTxs, series] = await Promise.all([
-    computeReport(from, to, ledger),
+    computeReport(reportFrom, reportTo, ledger),
     txq.then((r) => (r.data ?? []) as Transaction[]),
     pendingq.then((r) => (r.data ?? []) as Transaction[]),
-    monthlySeries(refDate, count, ledger, true),
+    monthlySeries(seriesRef, seriesCount, ledger, true),
   ]);
 
   // Une mes + pendientes sin duplicar (los pendientes del mes ya vienen en monthTxs).

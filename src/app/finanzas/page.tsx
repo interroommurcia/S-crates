@@ -87,6 +87,7 @@ type LedgerFilter = "conjunto" | "personal" | "empresa";
 export default function Finanzas() {
   const [month, setMonth] = useState(currentMonth);
   const [range, setRange] = useState<6 | 12>(6);
+  const [scope, setScope] = useState<"global" | "month">("global");
   const [ledger, setLedger] = useState<LedgerFilter>("personal");
   const [report, setReport] = useState<Report | null>(null);
   const [txs, setTxs] = useState<Tx[]>([]);
@@ -101,7 +102,7 @@ export default function Finanzas() {
     setLoading(true);
     try {
       const q = ledger === "conjunto" ? "" : `&ledger=${ledger}`;
-      const res = await fetch(`/api/finance?month=${month}&months=${range}${q}`);
+      const res = await fetch(`/api/finance?month=${month}&months=${range}&scope=${scope}${q}`);
       if (!res.ok) return; // 500 transitorio: conserva datos previos
       const data = await res.json();
       setReport(data.report);
@@ -112,7 +113,7 @@ export default function Finanzas() {
     } finally {
       setLoading(false);
     }
-  }, [month, ledger, range]);
+  }, [month, ledger, range, scope]);
 
   useEffect(() => {
     load();
@@ -176,12 +177,27 @@ export default function Finanzas() {
           >
             Rentas
           </Link>
-          <input
-            type="month"
-            value={month}
-            onChange={(e) => setMonth(e.target.value)}
-            className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
-          />
+          <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-900 p-0.5">
+            {(["global", "month"] as const).map((s) => (
+              <button
+                key={s}
+                onClick={() => setScope(s)}
+                className={`px-3 py-1.5 rounded-md text-sm transition-colors ${
+                  scope === s ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
+                }`}
+              >
+                {s === "global" ? "Global" : "Mes"}
+              </button>
+            ))}
+          </div>
+          {scope === "month" && (
+            <input
+              type="month"
+              value={month}
+              onChange={(e) => setMonth(e.target.value)}
+              className="bg-neutral-900 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+            />
+          )}
         </div>
       </header>
 
@@ -236,21 +252,23 @@ export default function Finanzas() {
             <h2 className="text-sm font-semibold text-neutral-300">
               Evolución · ingresos, gastos e impuestos
             </h2>
-            <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-950 p-0.5">
-              {([6, 12] as const).map((r) => (
-                <button
-                  key={r}
-                  onClick={() => setRange(r)}
-                  className={`px-3 py-1 rounded-md text-xs transition-colors ${
-                    range === r ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
-                  }`}
-                >
-                  {r === 6 ? "6 meses" : "1 año"}
-                </button>
-              ))}
-            </div>
+            {scope === "month" && (
+              <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-950 p-0.5">
+                {([6, 12] as const).map((r) => (
+                  <button
+                    key={r}
+                    onClick={() => setRange(r)}
+                    className={`px-3 py-1 rounded-md text-xs transition-colors ${
+                      range === r ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
+                    }`}
+                  >
+                    {r === 6 ? "6 meses" : "1 año"}
+                  </button>
+                ))}
+              </div>
+            )}
           </div>
-          <MonthlyChart data={series} />
+          <MonthlyChart data={series} accumulate={scope === "global"} />
         </section>
 
         <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
@@ -805,7 +823,7 @@ const TAX_BASE = "#fbbf24";
 const NET_COLOR = "#e5e5e5";
 const SEG_GAP = 1.5; // separador entre tramos apilados
 
-function MonthlyChart({ data }: { data: SeriesPoint[] }) {
+function MonthlyChart({ data, accumulate = false }: { data: SeriesPoint[]; accumulate?: boolean }) {
   const [visible, setVisible] = useState({ income: true, expense: true, tax: true, net: true });
   const [hover, setHover] = useState<number | null>(null);
   const toggle = (k: keyof typeof visible) => setVisible((v) => ({ ...v, [k]: !v[k] }));
@@ -821,7 +839,10 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
   const chartH = H - pad.top - pad.bottom;
   const chartW = W - pad.left - pad.right;
 
-  const net = data.map((d) => d.income - d.expense - d.tax);
+  const perMonthNet = data.map((d) => d.income - d.expense - d.tax);
+  // En "global" la línea es el saldo acumulado (running total); si no, neto por mes.
+  let run = 0;
+  const net = accumulate ? perMonthNet.map((v) => (run += v)) : perMonthNet;
   const barVals = data.flatMap((d) => [
     visible.income ? d.income : 0,
     visible.expense ? d.expense : 0,
@@ -1021,7 +1042,12 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
           {isConjunto && hd.expenseBy && <TipBreakdown by={hd.expenseBy} palette={EXPENSE_SHADES} />}
           <TipRow color={TAX_BASE} label="Impuestos" value={hd.tax} />
           <div className="mt-1 border-t border-neutral-800 pt-1">
-            <TipRow color={NET_COLOR} label="Neto" value={hd.income - hd.expense - hd.tax} bold />
+            <TipRow
+              color={NET_COLOR}
+              label={accumulate ? "Saldo acum." : "Neto"}
+              value={accumulate && hover != null ? net[hover] : hd.income - hd.expense - hd.tax}
+              bold
+            />
           </div>
         </div>
       )}
@@ -1042,7 +1068,11 @@ function MonthlyChart({ data }: { data: SeriesPoint[] }) {
           "Impuestos",
           <span className="w-3 h-3 rounded-sm inline-block" style={{ background: TAX_BASE }} />
         )}
-        {legendBtn("net", "Neto", <span className="inline-block w-4 border-t-2 border-neutral-200" />)}
+        {legendBtn(
+          "net",
+          accumulate ? "Saldo acum." : "Neto",
+          <span className="inline-block w-4 border-t-2 border-neutral-200" />
+        )}
         <span className="flex items-center gap-1.5 px-2 py-0.5">
           <span
             className="w-3 h-3 rounded-sm inline-block border border-neutral-600 opacity-40"

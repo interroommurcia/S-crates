@@ -151,7 +151,7 @@ export default function Finanzas() {
 
   return (
     <main className="min-h-screen bg-neutral-950 text-white">
-      <header className="flex items-center justify-between px-6 py-4 border-b border-neutral-800">
+      <header className="flex flex-wrap items-center justify-between gap-3 px-4 sm:px-6 py-4 border-b border-neutral-800">
         <div className="flex items-center gap-3">
           <Link
             href="/"
@@ -164,7 +164,7 @@ export default function Finanzas() {
             <p className="text-xs text-neutral-400">Contabilidad personal</p>
           </div>
         </div>
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3">
           <Link
             href="/finanzas/ratios"
             className="text-sm text-neutral-400 hover:text-amber-500 transition-colors"
@@ -202,13 +202,13 @@ export default function Finanzas() {
       </header>
 
       <div className="max-w-4xl mx-auto px-4 py-6 space-y-6">
-        <div className="flex items-center justify-between gap-3">
+        <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="inline-flex rounded-xl border border-neutral-800 bg-neutral-900 p-1">
             {(["personal", "empresa", "conjunto"] as LedgerFilter[]).map((l) => (
               <button
                 key={l}
                 onClick={() => setLedger(l)}
-                className={`px-4 py-1.5 rounded-lg text-sm capitalize transition-colors ${
+                className={`px-3 sm:px-4 py-1.5 rounded-lg text-sm capitalize transition-colors ${
                   ledger === l
                     ? "bg-amber-600 text-white"
                     : "text-neutral-400 hover:text-white"

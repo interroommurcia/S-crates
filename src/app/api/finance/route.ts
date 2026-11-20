@@ -127,6 +127,7 @@ export async function GET(req: Request) {
   let txq = supabaseAdmin
     .from("transactions")
     .select("*")
+    .eq("archived", false)
     .order("occurred_at", { ascending: false })
     .order("created_at", { ascending: false })
     .limit(100);
@@ -139,6 +140,7 @@ export async function GET(req: Request) {
     .from("transactions")
     .select("*")
     .eq("pending", true)
+    .eq("archived", false)
     .order("occurred_at", { ascending: false })
     .limit(100);
   if (ledger) pendingq = pendingq.eq("ledger", ledger);
@@ -234,6 +236,7 @@ export async function PATCH(req: Request) {
   if (typeof body.date === "string" && /^\d{4}-\d{2}-\d{2}$/.test(body.date))
     update.occurred_at = body.date;
   if (typeof body.pending === "boolean") update.pending = body.pending;
+  if (typeof body.archived === "boolean") update.archived = body.archived;
   if ("apartado" in body) update.apartado = normalizeApartado(body.apartado);
 
   if (Object.keys(update).length === 0)

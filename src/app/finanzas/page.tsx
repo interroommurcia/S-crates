@@ -16,6 +16,7 @@ type Tx = {
   ledger: "personal" | "empresa";
   receipt_path: string | null;
   pending: boolean;
+  archived?: boolean;
   recurring_id: string | null;
   apartado: "estilo_vida" | "ahorro" | "deuda" | null;
   occurred_at: string;
@@ -97,6 +98,10 @@ export default function Finanzas() {
   const [showRecurring, setShowRecurring] = useState(false);
   const [editTx, setEditTx] = useState<Tx | null>(null);
   const [txFilter, setTxFilter] = useState<"todos" | "proximamente" | "fijos">("todos");
+  const [movOpen, setMovOpen] = useState(true);
+  const [showArchived, setShowArchived] = useState(false);
+  const [archivedTxs, setArchivedTxs] = useState<Tx[]>([]);
+  const [archivedQ, setArchivedQ] = useState("");
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -118,6 +123,29 @@ export default function Finanzas() {
   useEffect(() => {
     load();
   }, [load]);
+
+  const loadArchived = useCallback(async () => {
+    try {
+      const res = await fetch(`/api/finance/archived?q=${encodeURIComponent(archivedQ)}`);
+      if (res.ok) setArchivedTxs((await res.json()).transactions ?? []);
+    } catch {
+      /* red: conserva datos previos */
+    }
+  }, [archivedQ]);
+
+  useEffect(() => {
+    if (showArchived) loadArchived();
+  }, [showArchived, loadArchived]);
+
+  async function archive(id: string, on = true) {
+    await fetch("/api/finance", {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id, archived: on }),
+    });
+    load();
+    if (showArchived) loadArchived();
+  }
 
   async function remove(id: string) {
     if (!confirm("¿Borrar este movimiento?")) return;
@@ -326,29 +354,107 @@ export default function Finanzas() {
         )}
 
         <section className="bg-neutral-900 rounded-2xl border border-neutral-800 p-5">
-          <div className="flex items-center justify-between mb-4">
+          <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
             <h2 className="text-sm font-semibold text-neutral-300">
-              Movimientos ({visibleTxs.length})
+              {showArchived ? "Archivados" : "Movimientos"} (
+              {showArchived ? archivedTxs.length : visibleTxs.length})
             </h2>
-            <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-950 p-0.5">
-              {(["todos", "proximamente", "fijos"] as const).map((f) => (
-                <button
-                  key={f}
-                  onClick={() => setTxFilter(f)}
-                  className={`px-3 py-1 rounded-md text-xs transition-colors ${
-                    txFilter === f ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
-                  }`}
-                >
-                  {f === "todos"
-                    ? "Todos"
-                    : f === "proximamente"
-                    ? `Próximamente${pendingCount ? ` (${pendingCount})` : ""}`
-                    : `Fijos${fijosCount ? ` (${fijosCount})` : ""}`}
-                </button>
-              ))}
+            <div className="flex flex-wrap items-center gap-2">
+              {!showArchived && (
+                <div className="inline-flex rounded-lg border border-neutral-800 bg-neutral-950 p-0.5">
+                  {(["todos", "proximamente", "fijos"] as const).map((f) => (
+                    <button
+                      key={f}
+                      onClick={() => setTxFilter(f)}
+                      className={`px-3 py-1 rounded-md text-xs transition-colors ${
+                        txFilter === f ? "bg-amber-600 text-white" : "text-neutral-400 hover:text-white"
+                      }`}
+                    >
+                      {f === "todos"
+                        ? "Todos"
+                        : f === "proximamente"
+                        ? `Próximamente${pendingCount ? ` (${pendingCount})` : ""}`
+                        : `Fijos${fijosCount ? ` (${fijosCount})` : ""}`}
+                    </button>
+                  ))}
+                </div>
+              )}
+              <button
+                onClick={() => {
+                  setShowArchived((s) => !s);
+                  setMovOpen(true);
+                }}
+                className="rounded-lg border border-neutral-700 bg-neutral-950 hover:bg-neutral-800 px-3 py-1 text-xs text-neutral-300 transition-colors"
+              >
+                {showArchived ? "← Movimientos" : "Archivados"}
+              </button>
+              <button
+                onClick={() => setMovOpen((o) => !o)}
+                className="text-xs text-neutral-400 hover:text-white transition-colors px-2 py-1"
+              >
+                {movOpen ? "Plegar" : "Desplegar"}
+              </button>
             </div>
           </div>
-          {visibleTxs.length === 0 && !loading ? (
+
+          {!movOpen ? null : showArchived ? (
+            <div className="space-y-3">
+              <input
+                type="text"
+                value={archivedQ}
+                onChange={(e) => setArchivedQ(e.target.value)}
+                placeholder="Buscar nombre o referencia catastral…"
+                className="w-full bg-neutral-800 border border-neutral-700 rounded-lg px-3 py-2 text-sm"
+              />
+              {archivedTxs.length === 0 ? (
+                <p className="text-neutral-500 text-sm">
+                  {archivedQ ? "Sin resultados." : "No hay movimientos archivados."}
+                </p>
+              ) : (
+                <div className="divide-y divide-neutral-800">
+                  {archivedTxs.map((t) => (
+                    <div key={t.id} className="flex items-center gap-3 py-3">
+                      <div
+                        onClick={() => setEditTx(t)}
+                        className="flex-1 min-w-0 cursor-pointer"
+                      >
+                        <p className="text-sm truncate">
+                          <span className="capitalize">{t.category}</span>
+                          {t.description ? (
+                            <span className="text-neutral-400"> · {t.description}</span>
+                          ) : null}
+                        </p>
+                        <p className="text-xs text-neutral-500">
+                          {t.subcategory ? (
+                            <span className="text-neutral-400">{t.subcategory} · </span>
+                          ) : null}
+                          {t.occurred_at} · {t.account}
+                        </p>
+                      </div>
+                      <span
+                        className={`text-sm font-medium tabular-nums ${
+                          t.type === "income"
+                            ? "text-emerald-400"
+                            : t.type === "tax"
+                            ? "text-amber-400"
+                            : "text-rose-400"
+                        }`}
+                      >
+                        {t.type === "income" ? "+" : "−"}
+                        {eur(t.amount)}
+                      </span>
+                      <button
+                        onClick={() => archive(t.id, false)}
+                        className="shrink-0 rounded-lg border border-neutral-700 bg-neutral-950 hover:bg-neutral-800 px-2.5 py-1 text-xs font-medium transition-colors"
+                      >
+                        Desarchivar
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          ) : visibleTxs.length === 0 && !loading ? (
             <p className="text-neutral-500 text-sm">
               {txFilter === "proximamente"
                 ? "Sin ingresos por cobrar."
@@ -428,6 +534,12 @@ export default function Finanzas() {
                       Cobrado
                     </button>
                   ) : null}
+                  <button
+                    onClick={() => archive(t.id, true)}
+                    className="shrink-0 rounded-lg border border-neutral-700 bg-neutral-950 hover:bg-neutral-800 px-2.5 py-1 text-xs font-medium transition-colors"
+                  >
+                    Archivar
+                  </button>
                   <button
                     onClick={() => remove(t.id)}
                     className="hidden sm:block opacity-0 group-hover:opacity-100 text-neutral-500 hover:text-rose-400 transition text-xs"

@@ -82,7 +82,7 @@ export async function reflectOnConversation(
 ): Promise<{ skipped: boolean; reason?: string; new_facts?: number; updated?: number }> {
   const { data: conv } = await supabaseAdmin
     .from("conversations")
-    .select("messages, last_reflected_count")
+    .select("messages, last_reflected_count, project_id")
     .eq("id", conversationId)
     .single();
 
@@ -251,12 +251,14 @@ export async function reflectOnConversation(
   }
 
   // Ya consolidamos la conversacion en un episodio (resumen + puntos clave).
-  // Vaciamos el transcript completo para ahorrar espacio: el episodio es el
-  // registro duradero. Si la sesion continua, el cliente reenvia el hilo y se
-  // vuelve a reflejar el delta.
+  // Las conversaciones de un proyecto CONSERVAN su transcript (historial
+  // reabrible, estilo Claude); solo avanzamos el contador para no re-reflejar.
+  // El resto se vacian para ahorrar espacio: el episodio es el registro duradero.
+  const patch: Record<string, unknown> = { last_reflected_count: messages.length };
+  if (!conv.project_id) patch.messages = [];
   await supabaseAdmin
     .from("conversations")
-    .update({ messages: [], last_reflected_count: messages.length })
+    .update(patch)
     .eq("id", conversationId);
 
   return { skipped: false, new_facts: inserted, updated };

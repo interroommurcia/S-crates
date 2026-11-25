@@ -123,19 +123,118 @@ function Rich({ text }: { text: string }) {
   return <>{blocks}</>;
 }
 
+type Project = { id: string; name: string; conversations: number };
+type ConvMeta = {
+  id: string;
+  title: string | null;
+  project_id: string | null;
+  updated_at: string;
+};
+
 export default function Home() {
   const [messages, setMessages] = useState<Msg[]>([]);
   const [input, setInput] = useState("");
   const [loading, setLoading] = useState(false);
   const [status, setStatus] = useState("");
-  const [convId] = useState(genId);
+  const [convId, setConvId] = useState(genId);
+  const [projectId, setProjectId] = useState<string | null>(null);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [projects, setProjects] = useState<Project[]>([]);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [convsByProject, setConvsByProject] = useState<Record<string, ConvMeta[]>>({});
   const bottomRef = useRef<HTMLDivElement>(null);
   const dirtyRef = useRef(false);
   const reflectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const titledRef = useRef(false);
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
+
+  const loadProjects = () => {
+    fetch("/api/projects")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setProjects(Array.isArray(d) ? d : []))
+      .catch(() => {});
+  };
+
+  const loadConvs = (pid: string) => {
+    fetch(`/api/conversations?project=${pid}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) =>
+        setConvsByProject((prev) => ({ ...prev, [pid]: Array.isArray(d) ? d : [] }))
+      )
+      .catch(() => {});
+  };
+
+  // Carga inicial desde la URL: ?c=<conv> reabre una conversacion,
+  // ?p=<proyecto> arranca una nueva dentro de ese proyecto.
+  useEffect(() => {
+    loadProjects();
+    const params = new URLSearchParams(window.location.search);
+    const c = params.get("c");
+    const p = params.get("p");
+    (async () => {
+      if (c && /^[0-9a-f-]{36}$/i.test(c)) {
+        const d = await fetch(`/api/conversations?id=${c}`)
+          .then((r) => (r.ok ? r.json() : null))
+          .catch(() => null);
+        if (!d) return;
+        setConvId(d.id);
+        setProjectId(d.project_id ?? null);
+        setMessages(Array.isArray(d.messages) ? d.messages : []);
+        titledRef.current = true;
+      } else if (p && /^[0-9a-f-]{36}$/i.test(p)) {
+        await Promise.resolve();
+        setProjectId(p);
+      }
+    })();
+  }, []);
+
+  const openConversation = (c: ConvMeta) => {
+    setConvId(c.id);
+    setProjectId(c.project_id ?? null);
+    titledRef.current = true;
+    setSidebarOpen(false);
+    fetch(`/api/conversations?id=${c.id}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => setMessages(d && Array.isArray(d.messages) ? d.messages : []))
+      .catch(() => {});
+    window.history.pushState({}, "", `/?c=${c.id}`);
+  };
+
+  const newConversation = (pid: string) => {
+    setConvId(genId());
+    setProjectId(pid);
+    setMessages([]);
+    setInput("");
+    titledRef.current = false;
+    setSidebarOpen(false);
+    window.history.pushState({}, "", `/?p=${pid}`);
+  };
+
+  const createProject = async () => {
+    const name = window.prompt("Nombre del proyecto")?.trim();
+    if (!name) return;
+    const res = await fetch("/api/projects", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name }),
+    });
+    if (res.ok) {
+      const proj = (await res.json()) as Project;
+      loadProjects();
+      newConversation(proj.id);
+    }
+  };
+
+  const toggleProject = (pid: string) => {
+    setExpanded((cur) => {
+      const next = cur === pid ? null : pid;
+      if (next && !convsByProject[pid]) loadConvs(pid);
+      return next;
+    });
+  };
 
   const flushReflect = (keepalive = false) => {
     if (!dirtyRef.current) return;
@@ -178,7 +277,7 @@ export default function Home() {
       const res = await fetch("/api/chat", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ messages: updated, conversationId: convId }),
+        body: JSON.stringify({ messages: updated, conversationId: convId, projectId }),
       });
 
       const reader = res.body?.getReader();
@@ -229,6 +328,15 @@ export default function Home() {
 
       setStatus("");
       scheduleReflect();
+
+      // Primera respuesta de una conversacion de proyecto: fija la URL y
+      // refresca la lista del proyecto para que aparezca al momento.
+      if (projectId && !titledRef.current) {
+        titledRef.current = true;
+        window.history.replaceState({}, "", `/?c=${convId}`);
+        loadConvs(projectId);
+        loadProjects();
+      }
     } catch {
       setMessages((prev) => [
         ...prev,
@@ -240,15 +348,101 @@ export default function Home() {
     }
   }
 
+  const activeProject = projects.find((p) => p.id === projectId);
+
   return (
     <main className="flex flex-col h-[100dvh] bg-neutral-950 text-white">
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/50"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+      <aside
+        className={`fixed inset-y-0 left-0 z-40 w-72 max-w-[85vw] bg-neutral-900 border-r border-neutral-800 flex flex-col transition-transform duration-200 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
+      >
+        <div className="flex items-center justify-between px-4 py-3 border-b border-neutral-800">
+          <span className="text-sm font-semibold">Proyectos</span>
+          <button
+            onClick={createProject}
+            className="text-xs rounded-md bg-amber-600 hover:bg-amber-500 px-2 py-1 transition-colors"
+          >
+            + Nuevo
+          </button>
+        </div>
+        <div className="flex-1 overflow-y-auto px-2 py-2 space-y-1">
+          {projects.length === 0 && (
+            <p className="text-xs text-neutral-500 px-2 py-3">
+              Aún no hay proyectos. Crea uno con “+ Nuevo”.
+            </p>
+          )}
+          {projects.map((p) => (
+            <div key={p.id}>
+              <button
+                onClick={() => toggleProject(p.id)}
+                className={`w-full flex items-center gap-2 rounded-md px-2 py-2 text-left text-sm hover:bg-neutral-800 transition-colors ${
+                  projectId === p.id ? "text-amber-400" : "text-neutral-200"
+                }`}
+              >
+                <span className="text-neutral-500 text-xs w-3">
+                  {expanded === p.id ? "▾" : "▸"}
+                </span>
+                <span className="flex-1 truncate">{p.name}</span>
+                <span className="text-[10px] text-neutral-500">{p.conversations}</span>
+              </button>
+              {expanded === p.id && (
+                <div className="pl-5 pr-1 py-1 space-y-0.5">
+                  <button
+                    onClick={() => newConversation(p.id)}
+                    className="w-full text-left text-xs text-amber-400/90 hover:text-amber-300 px-2 py-1.5 rounded hover:bg-neutral-800 transition-colors"
+                  >
+                    + Nueva conversación
+                  </button>
+                  {(convsByProject[p.id] ?? []).map((c) => (
+                    <button
+                      key={c.id}
+                      onClick={() => openConversation(c)}
+                      className={`w-full text-left text-xs px-2 py-1.5 rounded hover:bg-neutral-800 transition-colors truncate ${
+                        convId === c.id ? "bg-neutral-800 text-white" : "text-neutral-300"
+                      }`}
+                    >
+                      {c.title || "Sin título"}
+                    </button>
+                  ))}
+                  {(convsByProject[p.id]?.length ?? 0) === 0 && (
+                    <p className="text-[11px] text-neutral-600 px-2 py-1">
+                      Sin conversaciones.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      </aside>
+
       <header className="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 shrink-0">
+        <button
+          onClick={() => setSidebarOpen(true)}
+          aria-label="Proyectos"
+          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-neutral-800 text-neutral-300 shrink-0"
+        >
+          <span className="flex flex-col gap-[3px]">
+            <span className="block w-4 h-0.5 bg-current" />
+            <span className="block w-4 h-0.5 bg-current" />
+            <span className="block w-4 h-0.5 bg-current" />
+          </span>
+        </button>
         <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-500 to-orange-600 flex items-center justify-center text-base font-bold shrink-0">
           S
         </div>
         <div className="min-w-0">
           <h1 className="text-base font-semibold leading-tight">Sócrates</h1>
-          <p className="text-xs text-neutral-400 leading-tight">Tu asistente personal</p>
+          <p className="text-xs text-neutral-400 leading-tight truncate">
+            {activeProject ? activeProject.name : "Tu asistente personal"}
+          </p>
         </div>
         <Link
           href="/finanzas"

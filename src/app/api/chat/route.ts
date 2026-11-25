@@ -39,9 +39,10 @@ export async function POST(req: Request) {
   const denied = await requireSession();
   if (denied) return denied;
   try {
-    const { messages, conversationId } = (await req.json()) as {
+    const { messages, conversationId, projectId } = (await req.json()) as {
       messages: Mensaje[];
       conversationId?: string;
+      projectId?: string;
     };
 
     // Validacion de entrada: forma, roles y tamano (acota coste y abuso).
@@ -57,7 +58,10 @@ export async function POST(req: Request) {
       ) &&
       messages.reduce((n, m) => n + m.content.length, 0) <= 600_000 &&
       (conversationId === undefined ||
-        (typeof conversationId === "string" && /^[0-9a-f-]{36}$/i.test(conversationId)));
+        (typeof conversationId === "string" && /^[0-9a-f-]{36}$/i.test(conversationId))) &&
+      (projectId === undefined ||
+        projectId === null ||
+        (typeof projectId === "string" && /^[0-9a-f-]{36}$/i.test(projectId)));
     if (!validShape) {
       return Response.json({ error: "peticion invalida" }, { status: 400 });
     }
@@ -177,11 +181,20 @@ export async function POST(req: Request) {
               ...messages,
               { role: "assistant" as const, content: assistantText },
             ];
-            await supabaseAdmin.from("conversations").upsert({
+            const row: Record<string, unknown> = {
               id: conversationId,
               messages: persisted,
               updated_at: new Date().toISOString(),
-            });
+            };
+            if (projectId) {
+              row.project_id = projectId;
+              // Titulo solo en el primer turno (1 mensaje de usuario, sin
+              // respuesta aun): asi un renombrado posterior no se pisa.
+              if (messages.length === 1 && messages[0]?.role === "user") {
+                row.title = messages[0].content.trim().slice(0, 80);
+              }
+            }
+            await supabaseAdmin.from("conversations").upsert(row);
           }
         } catch (err) {
           console.error("stream error:", err);

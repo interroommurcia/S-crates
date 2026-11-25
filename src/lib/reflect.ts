@@ -88,6 +88,10 @@ export async function reflectOnConversation(
 
   if (!conv) return { skipped: true, reason: "conversacion no encontrada" };
 
+  // Conversaciones de proyecto: fuente cerrada de documentos. No se extrae
+  // memoria (ahorra una llamada por sesion) y se conserva el transcript.
+  if (conv.project_id) return { skipped: true, reason: "conversacion de proyecto" };
+
   const messages = (conv.messages ?? []) as Msg[];
   const already = conv.last_reflected_count ?? 0;
   if (messages.length <= already) {

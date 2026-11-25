@@ -130,6 +130,15 @@ type ConvMeta = {
   project_id: string | null;
   updated_at: string;
 };
+type Doc = {
+  id: string;
+  name: string;
+  kind: string;
+  bytes: number;
+  chunks: number;
+  status: string;
+  created_at: string;
+};
 
 export default function Home() {
   const [messages, setMessages] = useState<Msg[]>([]);
@@ -142,6 +151,11 @@ export default function Home() {
   const [projects, setProjects] = useState<Project[]>([]);
   const [expanded, setExpanded] = useState<string | null>(null);
   const [convsByProject, setConvsByProject] = useState<Record<string, ConvMeta[]>>({});
+  const [filesFor, setFilesFor] = useState<Project | null>(null);
+  const [docs, setDocs] = useState<Doc[]>([]);
+  const [docsLoading, setDocsLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [uploadMsg, setUploadMsg] = useState("");
   const bottomRef = useRef<HTMLDivElement>(null);
   const dirtyRef = useRef(false);
   const reflectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -234,6 +248,56 @@ export default function Home() {
       if (next && !convsByProject[pid]) loadConvs(pid);
       return next;
     });
+  };
+
+  const openFiles = (p: Project) => {
+    setFilesFor(p);
+    setUploadMsg("");
+    setDocsLoading(true);
+    fetch(`/api/documents?project=${p.id}`)
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setDocs(Array.isArray(d) ? d : []))
+      .catch(() => setDocs([]))
+      .finally(() => setDocsLoading(false));
+  };
+
+  const uploadFiles = async (files: FileList | null) => {
+    if (!files || !filesFor || uploading) return;
+    setUploading(true);
+    for (const file of Array.from(files)) {
+      setUploadMsg(`Procesando ${file.name}…`);
+      const fd = new FormData();
+      fd.append("file", file);
+      fd.append("projectId", filesFor.id);
+      try {
+        const res = await fetch("/api/documents", { method: "POST", body: fd });
+        if (!res.ok) {
+          const e = await res.json().catch(() => ({}));
+          setUploadMsg(`${file.name}: ${e.error ?? "error"}`);
+          continue;
+        }
+        const doc = (await res.json()) as Doc;
+        setDocs((prev) => [doc, ...prev]);
+      } catch {
+        setUploadMsg(`${file.name}: error de conexión`);
+      }
+    }
+    setUploading(false);
+    setUploadMsg((m) => (m.startsWith("Procesando") ? "" : m));
+    loadProjects();
+  };
+
+  const deleteDoc = async (id: string) => {
+    if (!window.confirm("¿Borrar este documento?")) return;
+    const res = await fetch("/api/documents", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    if (res.ok) {
+      setDocs((prev) => prev.filter((d) => d.id !== id));
+      loadProjects();
+    }
   };
 
   const flushReflect = (keepalive = false) => {
@@ -400,6 +464,12 @@ export default function Home() {
                   >
                     + Nueva conversación
                   </button>
+                  <button
+                    onClick={() => openFiles(p)}
+                    className="w-full text-left text-xs text-neutral-400 hover:text-white px-2 py-1.5 rounded hover:bg-neutral-800 transition-colors"
+                  >
+                    📎 Archivos
+                  </button>
                   {(convsByProject[p.id] ?? []).map((c) => (
                     <button
                       key={c.id}
@@ -422,6 +492,87 @@ export default function Home() {
           ))}
         </div>
       </aside>
+
+      {filesFor && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+          onClick={() => !uploading && setFilesFor(null)}
+        >
+          <div
+            className="w-full max-w-lg max-h-[85vh] flex flex-col rounded-2xl bg-neutral-900 border border-neutral-700 shadow-xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between px-5 py-4 border-b border-neutral-800">
+              <div className="min-w-0">
+                <h2 className="text-sm font-semibold truncate">Archivos · {filesFor.name}</h2>
+                <p className="text-xs text-neutral-500">
+                  Todas las conversaciones del proyecto los consultan.
+                </p>
+              </div>
+              <button
+                onClick={() => !uploading && setFilesFor(null)}
+                className="text-neutral-500 hover:text-white text-lg leading-none px-2"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="px-5 py-4 border-b border-neutral-800">
+              <label
+                className={`flex flex-col items-center justify-center gap-1 rounded-xl border border-dashed border-neutral-600 py-6 text-center text-sm cursor-pointer hover:border-amber-500 transition-colors ${
+                  uploading ? "opacity-60 pointer-events-none" : ""
+                }`}
+              >
+                <span className="text-neutral-300">
+                  {uploading ? "Subiendo…" : "Haz clic para subir documentos"}
+                </span>
+                <span className="text-xs text-neutral-500">
+                  PDF, Word, texto o imagen · máx. 10 MB
+                </span>
+                <input
+                  type="file"
+                  multiple
+                  accept=".pdf,.docx,.txt,.md,.csv,image/*"
+                  className="hidden"
+                  disabled={uploading}
+                  onChange={(e) => uploadFiles(e.target.files)}
+                />
+              </label>
+              {uploadMsg && (
+                <p className="mt-2 text-xs text-amber-400">{uploadMsg}</p>
+              )}
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+              {docsLoading && <p className="text-xs text-neutral-500">Cargando…</p>}
+              {!docsLoading && docs.length === 0 && (
+                <p className="text-xs text-neutral-500 py-4 text-center">
+                  Aún no hay documentos en este proyecto.
+                </p>
+              )}
+              {docs.map((d) => (
+                <div
+                  key={d.id}
+                  className="flex items-center gap-3 rounded-lg bg-neutral-800/60 px-3 py-2"
+                >
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm truncate">{d.name}</p>
+                    <p className="text-[11px] text-neutral-500">
+                      {d.kind} · {d.chunks} fragmentos · {(d.bytes / 1024).toFixed(0)} KB
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => deleteDoc(d.id)}
+                    className="text-xs text-neutral-500 hover:text-rose-400 transition-colors shrink-0"
+                  >
+                    Borrar
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       <header className="flex items-center gap-3 px-4 py-3 border-b border-neutral-800 shrink-0">
         <button

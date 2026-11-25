@@ -68,7 +68,10 @@ export async function POST(req: Request) {
 
     const lastUser =[...messages].reverse().find((m) => m.role === "user")?.content ?? "";
     const agent = detectActiveAgent(messages);
-    const systemPrompt = await buildSystemPrompt(lastUser, agent);
+    // Modo proyecto (fuente cerrada): solo documentos, sin tools ni memoria, e
+    // historial acotado. Un agente de dialogo puro mantiene su comportamiento.
+    const projectMode = !!projectId && !(agent && !agent.useTools);
+    const systemPrompt = await buildSystemPrompt(lastUser, agent, projectId ?? null);
     // web_fetch (leer el documento completo) solo se habilita si el usuario lo
     // pide explicitamente: es lo lento y lo que causaba el timeout de Vercel.
     // Por defecto basta web_search (enlace + fragmento), que es rapido.
@@ -76,7 +79,9 @@ export async function POST(req: Request) {
       /\b(l[eé]e(lo|la)?|leer|texto\s+completo|contenido\s+completo|documento\s+entero|entero|[ií]ntegro|art[ií]culo\s+completo)\b/i.test(
         lastUser
       );
-    const activeTools: Anthropic.Messages.ToolUnion[] = agent?.webSearch
+    const activeTools: Anthropic.Messages.ToolUnion[] = projectMode
+      ? []
+      : agent?.webSearch
       ? [
           { type: "web_search_20260209", name: "web_search", max_uses: 3 },
           ...(wantsFullFetch
@@ -95,7 +100,14 @@ export async function POST(req: Request) {
     const activeModel = agent?.model ?? AGENT_DEFAULT_MODEL;
     if (agent) console.log(`[agent] activo: ${agent.id} (modelo ${activeModel})`);
 
-    const convo: MessageParam[] = messages.map((m) => ({
+    // En modo proyecto acotamos el historial a los ultimos turnos: cada
+    // pregunta se responde con los documentos, no hace falta reenviar todo.
+    let convoSource = projectMode ? messages.slice(-10) : messages;
+    // La API exige que el primer mensaje sea del usuario.
+    while (convoSource.length > 0 && convoSource[0].role !== "user") {
+      convoSource = convoSource.slice(1);
+    }
+    const convo: MessageParam[] = convoSource.map((m) => ({
       role: m.role,
       content: m.content,
     }));

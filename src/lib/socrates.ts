@@ -1,6 +1,7 @@
 import type Anthropic from "@anthropic-ai/sdk";
 import { supabaseAdmin } from "./supabase-server";
 import { retrieveRelevantFacts } from "./tools";
+import { retrieveRelevantDocs } from "./documents";
 import { getProtocolContext } from "./protocols";
 import type { Agent } from "./agents";
 
@@ -30,13 +31,42 @@ Contabilidad personal (tools):
 
 export async function buildSystemPrompt(
   lastUserMessage: string,
-  agent?: Agent | null
+  agent?: Agent | null,
+  projectId?: string | null
 ): Promise<Anthropic.TextBlockParam[]> {
   // Agente de dialogo puro (sin tools): prompt minimo, sin memoria ni
   // protocolos ni embeddings. Mas economico y mantiene al agente aislado.
   if (agent && !agent.useTools) {
     const base = `${agent.prompt}\n\nFecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
     return [{ type: "text", text: base, cache_control: { type: "ephemeral" } }];
+  }
+
+  // Modo proyecto (fuente cerrada): responde SOLO con los documentos del
+  // proyecto. Nada de memoria, protocolos ni tools -> prompt minimo y barato.
+  if (projectId) {
+    const docChunks = await retrieveRelevantDocs(lastUserMessage, projectId, 6);
+    const base = `Eres Socrates. Respondes EXCLUSIVAMENTE a partir de los documentos de este proyecto que se incluyen abajo.
+- Si la respuesta no esta en los fragmentos, dilo con claridad; no uses conocimiento externo ni inventes.
+- Responde en espanol, directo y conciso, citando lo que digan los documentos.
+Fecha de hoy: ${new Date().toISOString().slice(0, 10)}.`;
+    const blocks: Anthropic.TextBlockParam[] = [
+      { type: "text", text: base, cache_control: { type: "ephemeral" } },
+    ];
+    if (docChunks.length > 0) {
+      const fragmentos = docChunks
+        .map((c, i) => `[Fragmento ${i + 1}]\n${c.content}`)
+        .join("\n\n---\n\n");
+      blocks.push({
+        type: "text",
+        text: `DOCUMENTOS DEL PROYECTO (fragmentos relevantes a la pregunta):\n\n${fragmentos}`,
+      });
+    } else {
+      blocks.push({
+        type: "text",
+        text: "No hay fragmentos de documentos relevantes para esta pregunta. Dilo y pide subir el material correspondiente.",
+      });
+    }
+    return blocks;
   }
 
   const [relevant, stableFacts, protocolContext] = await Promise.all([

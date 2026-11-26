@@ -7,7 +7,7 @@ const anthropic = new Anthropic({
   apiKey: (process.env.ANTHROPIC_API_KEY ?? "").replace(/[^\x20-\x7E]/g, ""),
 });
 
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = "claude-haiku-5-5";
 const MAX_ROWS = 400;
 
 export type ParsedTx = {
@@ -67,6 +67,9 @@ export async function parseBankCsv(csv: string): Promise<ParsedTx[]> {
   const resp = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 8000,
+    // Haiku 5.5 activa thinking por defecto, incompatible con tool_choice
+    // forzado; lo desactivamos.
+    thinking: { type: "disabled" },
     system: SYSTEM,
     tools: [parseTool],
     tool_choice: { type: "tool", name: "submit_transactions" },

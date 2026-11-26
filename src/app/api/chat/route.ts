@@ -17,8 +17,11 @@ const anthropic = new Anthropic({
   apiKey: (process.env.ANTHROPIC_API_KEY ?? "").replace(/[^\x20-\x7E]/g, ""),
 });
 
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = "claude-haiku-5-5";
 const AGENT_DEFAULT_MODEL = MODEL;
+// En modo proyecto (fuente cerrada de documentos) usamos el Haiku actual,
+// mas capaz y ~10x mas barato que el 4.5.
+const PROJECT_MODEL = "claude-haiku-5-5";
 const MAX_TOOL_ITERATIONS = 6;
 
 // Muletillas de estado que se emiten mientras Socrates usa una herramienta
@@ -97,7 +100,9 @@ export async function POST(req: Request) {
       : agent && !agent.useTools
         ? []
         : tools;
-    const activeModel = agent?.model ?? AGENT_DEFAULT_MODEL;
+    const activeModel = projectMode
+      ? PROJECT_MODEL
+      : agent?.model ?? AGENT_DEFAULT_MODEL;
     if (agent) console.log(`[agent] activo: ${agent.id} (modelo ${activeModel})`);
 
     // En modo proyecto acotamos el historial a los ultimos turnos: cada

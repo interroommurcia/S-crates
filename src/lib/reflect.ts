@@ -7,7 +7,7 @@ const anthropic = new Anthropic({
   apiKey: (process.env.ANTHROPIC_API_KEY ?? "").replace(/[^\x20-\x7E]/g, ""),
 });
 
-const MODEL = "claude-haiku-4-5-20251001";
+const MODEL = "claude-haiku-5-5";
 const DEDUP_THRESHOLD = 0.88;
 
 type Msg = { role: "user" | "assistant"; content: string };
@@ -120,6 +120,9 @@ export async function reflectOnConversation(
   const resp = await anthropic.messages.create({
     model: MODEL,
     max_tokens: 1500,
+    // Haiku 5.5 activa thinking por defecto, incompatible con tool_choice
+    // forzado; lo desactivamos (mas barato y rapido para esta extraccion).
+    thinking: { type: "disabled" },
     system: [
       { type: "text", text: REFLECT_SYSTEM, cache_control: { type: "ephemeral" } },
     ],

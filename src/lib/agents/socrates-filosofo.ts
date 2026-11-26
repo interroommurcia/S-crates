@@ -56,7 +56,7 @@ export const socratesFilosofo: Agent = {
   nombre: "Socrates (filosofo)",
   genero: "masculino",
   prompt: PROMPT,
-  model: "claude-sonnet-4-6",
+  model: "claude-sonnet-5-5",
   useTools: false,
   webSearch: true,
   categorias: [],
